@@ -259,7 +259,7 @@ def _evict_stale_dedup():
     for k in stale:
         del last_logged[k]
 
-def log_request_async(domain, action, user_id):
+def log_request_async(domain, action, user_id, qtype=1):
     if domain.endswith('.arpa') or domain.endswith('.arpa.'):
         return
 
@@ -275,7 +275,7 @@ def log_request_async(domain, action, user_id):
     last_logged[key] = now
 
     # Internal logging logic
-    def _do_log(domain, action, uid):
+    def _do_log(domain, action, uid, qt):
         conn = None
         try:
             conn = get_db_connection()
@@ -283,8 +283,8 @@ def log_request_async(domain, action, user_id):
             is_postgres = 'POSTGRES_URL' in os.environ
             p_mark = "%s" if is_postgres else "?"
             
-            # 1. Update counters
-            if action == "BLOCKED":
+            # 1. Update counters (Only for A records to avoid double counting A/AAAA)
+            if action == "BLOCKED" and qt == 1:
                 c.execute(f"UPDATE users SET total_blocked = total_blocked + 1 WHERE id = {p_mark}", (uid,))
                 date_func = "CURRENT_DATE" if is_postgres else "date('now', 'localtime')"
                 if is_postgres:
@@ -292,7 +292,7 @@ def log_request_async(domain, action, user_id):
                 else:
                     c.execute(f"INSERT INTO blocked_daily (user_id, day, count) VALUES (?, {date_func}, 1) ON CONFLICT(user_id, day) DO UPDATE SET count = count + 1", (uid,))
             
-            # 2. Write log entry (if enabled)
+            # 2. Write log entry (if enabled - always write for every record)
             c.execute(f"SELECT logging_enabled FROM users WHERE id = {p_mark}", (uid,))
             logging_row = fetch_one(c)
             if logging_row and logging_row['logging_enabled']:
@@ -305,9 +305,9 @@ def log_request_async(domain, action, user_id):
             if conn: conn.close()
 
     if IS_VERCEL:
-        _do_log(domain, action, user_id)
+        _do_log(domain, action, user_id, qtype)
     else:
-        threading.Thread(target=_do_log, args=(domain, action, user_id), daemon=True).start()
+        threading.Thread(target=_do_log, args=(domain, action, user_id, qtype), daemon=True).start()
 
 def process_dns_query(data, addr, sock, user_id=1, is_doh=False):
     try:
@@ -351,7 +351,7 @@ def process_dns_query(data, addr, sock, user_id=1, is_doh=False):
         
         if is_blocked:
             reply.add_answer(RR(qname, QTYPE.A, rdata=A("0.0.0.0")))
-            log_request_async(qname, "BLOCKED", user_id)
+            log_request_async(qname, "BLOCKED", user_id, request_data.q.qtype)
             res_packed = reply.pack()
             if not is_doh: sock.sendto(res_packed, addr)
             return res_packed
@@ -391,14 +391,14 @@ def process_dns_query(data, addr, sock, user_id=1, is_doh=False):
                                     
                         if is_cname_blocked:
                             reply.add_answer(RR(qname, QTYPE.A, rdata=A("0.0.0.0")))
-                            log_request_async(qname, "BLOCKED", user_id)
+                            log_request_async(qname, "BLOCKED", user_id, request_data.q.qtype)
                             res_packed = reply.pack()
                             if not is_doh: sock.sendto(res_packed, addr)
                             return res_packed
                 except Exception as e:
                     logger.debug(f"CNAME parse error for {qname}: {e}")
                     
-                log_request_async(qname, action, user_id)
+                log_request_async(qname, action, user_id, request_data.q.qtype)
                 if not is_doh: sock.sendto(real_dns_response, addr)
                 return real_dns_response
             except Exception as e:

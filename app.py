@@ -45,15 +45,33 @@ if IS_VERCEL:
     SECRET_KEY_FILE = os.path.join('/tmp', 'secret.key')
 
 def load_or_create_secret_key():
+    # Priority 1: Environment Variable (Perfect for Vercel)
+    env_key = os.environ.get('SECRET_KEY')
+    if env_key:
+        return env_key
+        
+    # Priority 2: Local File (For local dev persistence)
     if os.path.exists(SECRET_KEY_FILE):
         with open(SECRET_KEY_FILE, 'r') as f:
             return f.read().strip()
+            
+    # Priority 3: Generate New (Last resort)
     key = secrets.token_hex(32)
-    with open(SECRET_KEY_FILE, 'w') as f:
-        f.write(key)
+    try:
+        with open(SECRET_KEY_FILE, 'w') as f:
+            f.write(key)
+    except:
+        pass # Might fail on read-only fs
     return key
 
 app.secret_key = load_or_create_secret_key()
+# Make sessions last longer and survive browser restarts
+app.config.update(
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    PERMANENT_SESSION_LIFETIME=2592000 # 30 days
+)
 
 # Domain validation regex
 DOMAIN_RE = re.compile(r'^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$')
@@ -444,7 +462,7 @@ def login():
         
         if row and check_password_hash(row['password_hash'], password):
             user = User(row['id'], row['username'], row['doh_token'])
-            login_user(user)
+            login_user(user, remember=True) # Enable "Remember Me"
             return redirect(url_for('index'))
         else:
             return render_template('login.html', error="Invalid username or password")
@@ -655,8 +673,16 @@ def get_rules():
         cat_domains.setdefault(row['category'], []).append(row['domain'])
     conn.close()
  
+    user_cache = rules_cache.get(uid)
+    
+    # If cache is missing or empty, try one-time emergency reload
+    if not user_cache or not user_cache.get('categories'):
+        logger.info(f"Rules cache empty for user {uid}. Triggering emergency reload...")
+        ensure_default_rules()
+        reload_rules_cache()
+        user_cache = rules_cache.get(uid, {'categories': {}, 'domains': set()})
+
     cat_list = []
-    user_cache = rules_cache.get(uid, {'categories': {}})
     for k, v in user_cache['categories'].items():
         cat_list.append({"category": k, "is_active": v, "domains": cat_domains.get(k, [])})
  

@@ -156,7 +156,7 @@ def init_db():
         pass
                  
     c.execute(f'''CREATE TABLE IF NOT EXISTS logs
-                 (id {id_type}, user_id INTEGER, domain TEXT, action TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+                 (id {id_type}, user_id INTEGER, domain TEXT, action TEXT, "timestamp" TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
                  
     c.execute(f'''CREATE TABLE IF NOT EXISTS rules
                  (id {id_type}, user_id INTEGER, category TEXT, domain TEXT, is_active INTEGER)''')
@@ -217,7 +217,10 @@ def reload_rules_cache():
     rules_cache = new_cache
     conn.close()
 
-init_db()
+try:
+    init_db()
+except Exception as e:
+    logger.error(f"Failed to initialize database: {e}")
 
 # --- DNS Logic ---
 last_logged = {}
@@ -281,7 +284,7 @@ def log_request_async(domain, action, user_id):
             c = get_cursor(conn)
             is_postgres = 'POSTGRES_URL' in os.environ
             p_mark = "%s" if is_postgres else "?"
-            c.execute(f"INSERT INTO logs (user_id, domain, action) VALUES ({p_mark}, {p_mark}, {p_mark})", (user_id, domain, action))
+            c.execute(f'INSERT INTO logs (user_id, domain, action) VALUES ({p_mark}, {p_mark}, {p_mark})', (user_id, domain, action))
             conn.commit()
         except Exception as e:
             logger.warning(f"Failed to write log entry: {e}")
@@ -545,11 +548,11 @@ def get_stats():
     # Date filters
     if is_postgres:
         time_filters = {
-            'today': "AND timestamp::date = CURRENT_DATE",
-            'yesterday': "AND timestamp::date = CURRENT_DATE - INTERVAL '1 day'",
-            '7days': "AND timestamp::date >= CURRENT_DATE - INTERVAL '7 days'",
-            'this_month': "AND to_char(timestamp, 'YYYY-MM') = to_char(CURRENT_DATE, 'YYYY-MM')",
-            'last_month': "AND to_char(timestamp, 'YYYY-MM') = to_char(CURRENT_DATE - INTERVAL '1 month', 'YYYY-MM')"
+            'today': "AND \"timestamp\"::date = CURRENT_DATE",
+            'yesterday': "AND \"timestamp\"::date = CURRENT_DATE - INTERVAL '1 day'",
+            '7days': "AND \"timestamp\"::date >= CURRENT_DATE - INTERVAL '7 days'",
+            'this_month': "AND to_char(\"timestamp\", 'YYYY-MM') = to_char(CURRENT_DATE, 'YYYY-MM')",
+            'last_month': "AND to_char(\"timestamp\", 'YYYY-MM') = to_char(CURRENT_DATE - INTERVAL '1 month', 'YYYY-MM')"
         }
     else:
         time_filters = {
@@ -598,7 +601,7 @@ def get_stats():
     else:
         # Complex GROUP BY for Postgres
         if is_postgres:
-            c.execute(f"SELECT domain, MAX(timestamp) as time FROM logs WHERE action='BLOCKED' AND user_id=%s {time_filter} GROUP BY domain ORDER BY time DESC LIMIT 15", (uid,))
+            c.execute(f"SELECT domain, MAX(\"timestamp\") as time FROM logs WHERE action='BLOCKED' AND user_id=%s {time_filter} GROUP BY domain ORDER BY time DESC LIMIT 15", (uid,))
         else:
             c.execute(f"SELECT domain, MAX(timestamp) as time FROM logs WHERE action='BLOCKED' AND user_id=? {time_filter} GROUP BY domain ORDER BY time DESC LIMIT 15", (uid,))
         recent = [{"domain": r['domain'], "time": str(r['time'])} for r in fetch_all(c)]
@@ -620,7 +623,7 @@ def get_activity():
     if logging_row and not logging_row['logging_enabled']:
         conn.close()
         return jsonify([])
-    c.execute(f"SELECT domain, action, timestamp FROM logs WHERE user_id={p_mark} ORDER BY timestamp DESC LIMIT 200", (uid,))
+    c.execute(f"SELECT domain, action, \"timestamp\" FROM logs WHERE user_id={p_mark} ORDER BY \"timestamp\" DESC LIMIT 200", (uid,))
     acts = [{"domain": r['domain'], "action": r['action'], "time": str(r['timestamp'])} for r in fetch_all(c)]
     conn.close()
     return jsonify(acts)

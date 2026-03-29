@@ -8,6 +8,11 @@ import secrets
 import base64
 import logging
 from flask import Flask, request, jsonify, render_template, redirect, url_for, flash, Response
+import base64
+import hashlib
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from dnslib import DNSRecord, DNSHeader, DNSQuestion, QTYPE, RR, A
 from waitress import serve
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
@@ -227,11 +232,13 @@ def reload_rules_cache():
     new_cache = {}
     for user_row in users:
         uid = user_row['id']
-        new_cache[uid] = {'categories': {}, 'domains': set(), 'logging_enabled': True}
+        new_cache[uid] = {'categories': {}, 'domains': set(), 'logging_enabled': True, 'doh_token': ''}
         
-        c.execute(f"SELECT logging_enabled FROM users WHERE id = {p_mark}", (uid,))
-        logging_row = fetch_one(c)
-        if logging_row: new_cache[uid]['logging_enabled'] = bool(logging_row['logging_enabled'])
+        c.execute(f"SELECT logging_enabled, doh_token FROM users WHERE id = {p_mark}", (uid,))
+        user_data = fetch_one(c)
+        if user_data:
+            new_cache[uid]['logging_enabled'] = bool(user_data['logging_enabled'])
+            new_cache[uid]['doh_token'] = user_data['doh_token']
         
         # Postgres requires explicit column names in GROUP BY or aggregation
         c.execute(f"SELECT category, MAX(is_active) as max_active FROM rules WHERE user_id = {p_mark} AND category != 'Specific Website' GROUP BY category", (uid,))
@@ -248,6 +255,35 @@ try:
     init_db()
 except Exception as e:
     logger.error(f"Failed to initialize database: {e}")
+
+# --- Encryption Helpers ---
+def get_user_fernet(user_id):
+    user_info = rules_cache.get(user_id)
+    token = user_info.get('doh_token', 'default_salt') if user_info else 'default_salt'
+    salt = token.encode()
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=1000, # Lower iterations for faster DNS response
+    )
+    key = base64.urlsafe_b64encode(kdf.derive(app.config['SECRET_KEY'].encode()))
+    return Fernet(key)
+
+def encrypt_domain(domain, user_id):
+    try:
+        f = get_user_fernet(user_id)
+        return f.encrypt(domain.encode()).decode()
+    except:
+        return domain
+
+def decrypt_domain(encrypted_data, user_id):
+    if not encrypted_data: return ""
+    try:
+        f = get_user_fernet(user_id)
+        return f.decrypt(encrypted_data.encode()).decode()
+    except:
+        return encrypted_data
 
 # --- DNS Logic ---
 last_logged = {}
@@ -296,7 +332,8 @@ def log_request_async(domain, action, user_id, qtype=1):
             c.execute(f"SELECT logging_enabled FROM users WHERE id = {p_mark}", (uid,))
             logging_row = fetch_one(c)
             if logging_row and logging_row['logging_enabled']:
-                c.execute(f'INSERT INTO logs (user_id, domain, action) VALUES ({p_mark}, {p_mark}, {p_mark})', (uid, domain, action))
+                enc_domain = encrypt_domain(domain, uid)
+                c.execute(f'INSERT INTO logs (user_id, domain, action) VALUES ({p_mark}, {p_mark}, {p_mark})', (uid, enc_domain, action))
             
             conn.commit()
         except Exception as e:
@@ -658,12 +695,11 @@ def get_stats():
     if is_stealth:
         recent = []
     else:
-        # Complex GROUP BY for Postgres
         if is_postgres:
             c.execute(f"SELECT domain, MAX(\"timestamp\") as time FROM logs WHERE action='BLOCKED' AND user_id=%s {time_filter} GROUP BY domain ORDER BY time DESC LIMIT 15", (uid,))
         else:
             c.execute(f"SELECT domain, MAX(timestamp) as time FROM logs WHERE action='BLOCKED' AND user_id=? {time_filter} GROUP BY domain ORDER BY time DESC LIMIT 15", (uid,))
-        recent = [{"domain": r['domain'], "time": str(r['time'])} for r in fetch_all(c)]
+        recent = [{"domain": decrypt_domain(r['domain'], uid), "time": str(r['time'])} for r in fetch_all(c)]
 
     conn.close()
     return jsonify({"total_blocked": total, "recent_blocks": recent, "stealth": is_stealth})
@@ -711,7 +747,7 @@ def get_activity():
         conn.close()
         return jsonify([])
     c.execute(f"SELECT domain, action, \"timestamp\" FROM logs WHERE user_id={p_mark} ORDER BY \"timestamp\" DESC LIMIT 200", (uid,))
-    acts = [{"domain": r['domain'], "action": r['action'], "time": str(r['timestamp'])} for r in fetch_all(c)]
+    acts = [{"domain": decrypt_domain(r['domain'], uid), "action": r['action'], "time": str(r['timestamp'])} for r in fetch_all(c)]
     conn.close()
     return jsonify(acts)
 

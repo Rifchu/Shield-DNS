@@ -72,9 +72,8 @@
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         *:focus { outline: none; }
 
-        body {
-            background: linear-gradient(135deg, var(--bg-grad-1) 0%, var(--bg-grad-2) 100%);
-            background-attachment: fixed;
+        html, body {
+            background: var(--bg-grad-1);
             font-family: 'Satoshi', sans-serif;
             color: var(--text-primary);
             margin: 0;
@@ -409,6 +408,10 @@
         .remove-btn { background: rgba(248,113,113,0.1); color: #f87171; border: 1px solid rgba(248,113,113,0.2); padding: 8px 16px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 13px; transition: all 0.2s; }
         .remove-btn:hover { background: #f87171; color: #fff; box-shadow: 0 4px 15px rgba(248,113,113,0.4); }
 
+        .mini-timeline { list-style: none; padding: 0; margin: 20px auto 0 auto; max-width: 400px; text-align: center; }
+        .mini-log-item { display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.03); border: 1px solid var(--card-border); padding: 6px 14px; border-radius: 100px; font-size: 13px; color: var(--text-secondary); margin: 4px; animation: setupFadeIn 0.5s ease-out both; }
+        .mini-log-item .dot { width: 6px; height: 6px; background: #f87171; border-radius: 50%; box-shadow: 0 0 8px #f87171; }
+
         /* Custom Scrollbar for Logs */
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -577,8 +580,9 @@
 
             /* Mobile header */
             .mobile-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; margin-bottom: 10px; width: 100%; box-sizing: border-box; }
-            .mobile-brand { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+            .mobile-brand { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 8px; color: inherit; text-decoration: none; }
             .mobile-brand::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+            .navbar { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); }
         }
 
         /* ─── Large phone (≤ 480px) ─── */
@@ -639,13 +643,13 @@
 <body data-is-admin="{{ 'true' if is_admin else 'false' }}">
 
     <div class="mobile-header">
-        <div class="mobile-brand">Shield</div>
+        <a href="/" class="mobile-brand">Shield</a>
         <a href="/logout" style="color:#f87171; text-decoration:none; font-weight:600; font-size:14px; background: rgba(248,113,113,0.1); padding: 8px 16px; border-radius: 100px; border: 1px solid rgba(248,113,113,0.2);">Logout</a>
     </div>
 
     <nav class="navbar">
         <div class="nav-island">
-            <div class="brand">Shield DNS</div>
+            <a href="/" class="brand" style="text-decoration:none; color:inherit;">Shield DNS</a>
             <div class="nav-tabs">
                 <div class="nav-indicator" id="navIndicator"></div>
                 <button class="nav-btn active" data-tab="overview">Overview</button>
@@ -733,8 +737,9 @@
                     <button class="filter-btn" onclick="setPeriod('this_month', this)">This Month</button>
                 </div>
 
-                <p style="color: var(--text-secondary); font-size: 18px; margin: 0; font-weight: 500;" id="periodSubtitle">Threats neutralized</p>
+                <p style="color: var(--text-secondary); font-size: 18px; margin: 30px 0 0 0; font-weight: 500;" id="periodSubtitle">Threats neutralized</p>
                 <div class="blocked-count" id="totalBlocked">0</div>
+                <div id="miniLogs" class="mini-timeline"></div>
             </div>
         </section>
 
@@ -1084,6 +1089,22 @@
                     'this_month': 'Secured this month.',
                     'last_month': 'Secured last month.'
                 };
+
+                const subtitle = titles[currentPeriod] || titles.all;
+                document.getElementById('periodSubtitle').innerText = subtitle;
+
+                // Mini Blocks (top 5)
+                const miniLogs = document.getElementById('miniLogs');
+                if (data.recent_blocks.length > 0) {
+                    let miniHtml = '';
+                    data.recent_blocks.slice(0, 5).forEach(b => {
+                        const shortDomain = b.domain.length > 20 ? b.domain.substring(0, 18) + '...' : b.domain;
+                        miniHtml += `<div class="mini-log-item"><span class="dot"></span>${escapeHtml(shortDomain)}</div>`;
+                    });
+                    miniLogs.innerHTML = miniHtml;
+                } else {
+                    miniLogs.innerHTML = '';
+                }
 
                 let newHtml = '';
                 if (data.stealth) {

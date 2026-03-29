@@ -414,6 +414,87 @@
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+        
+        /* Setup Guide Styles */
+        .setup-container { max-width: 800px; margin: 0 auto; }
+        .setup-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            overflow-x: auto;
+            padding-bottom: 10px;
+            scrollbar-width: none;
+        }
+        .setup-tabs::-webkit-scrollbar { display: none; }
+        
+        .setup-tab-btn {
+            background: var(--btn-bg);
+            border: 1px solid var(--card-border);
+            color: var(--text-secondary);
+            padding: 10px 20px;
+            border-radius: 100px;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 14px;
+            white-space: nowrap;
+            transition: all 0.3s;
+        }
+        .setup-tab-btn.active {
+            background: var(--accent);
+            color: var(--bg-grad-1);
+            border-color: var(--accent);
+            box-shadow: 0 4px 15px var(--accent-glow);
+        }
+        
+        .instruction-step {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 24px;
+            text-align: left;
+        }
+        .step-number {
+            width: 32px;
+            height: 32px;
+            background: var(--btn-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            flex-shrink: 0;
+            font-size: 14px;
+            color: var(--accent);
+        }
+        .step-content { flex: 1; }
+        .step-content h4 { margin: 0 0 8px 0; font-size: 17px; font-weight: 700; color: var(--text-primary); }
+        .step-content p { margin: 0; font-size: 15px; color: var(--text-secondary); }
+        
+        .platform-content { display: none; }
+        .platform-content.active { display: block; animation: setupFadeIn 0.4s ease-out; }
+        
+        @keyframes setupFadeIn { 
+            from { opacity: 0; transform: translateY(10px); } 
+            to { opacity: 1; transform: translateY(0); } 
+        }
+        
+        .deep-link-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--accent-glow);
+            color: var(--accent);
+            padding: 10px 20px;
+            border-radius: 12px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 13px;
+            margin-top: 15px;
+            border: 1px solid rgba(255,255,255,0.05);
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .deep-link-btn:hover { background: var(--accent); color: var(--bg-grad-1); transform: translateY(-2px); }
 
         /* ─── Small laptop / Large tablet landscape (≤ 1024px) ─── */
         @media (max-width: 1024px) {
@@ -685,23 +766,94 @@
 
         <section id="setup" class="tab-content">
             <div class="hero-section" style="margin-bottom: 50px; text-align: left;">
-                <h1 class="hero-title" style="font-size: 48px;">Setup Guide</h1>
-                <p style="color: var(--text-secondary); font-size: 20px;">Get your devices protected in under 60 seconds.</p>
+                <h1 class="hero-title" style="font-size: 48px;">Deployment Center</h1>
+                <p style="color: var(--text-secondary); font-size: 20px;">Secure all your devices with these simple steps.</p>
             </div>
 
-            <div class="card reveal" style="max-width: 800px; margin: 0 auto;">
-                <p>For the best experience, we recommend <b>Browser-level DNS</b>. This works on all platforms and provides the highest level of privacy.</p>
+            <div class="card reveal setup-container">
+                <p style="margin-bottom: 30px;">The most effective way to use Shield DNS is to configure it directly in your browser. This provides encrypted, high-performance lookups on all platforms.</p>
                 
-                <h3 style="margin: 30px 0 15px 0;">1. Copy your Link</h3>
-                <div style="background: var(--code-bg); padding: 15px; border-radius: 12px; margin-bottom: 30px; border: 1px solid var(--card-border); display: flex; justify-content: space-between; align-items: center;">
-                    <code style="color: var(--accent); font-size: 14px;">https://{{ request.host }}/dns-query/{{ doh_token }}</code>
+                <div class="setup-tabs" id="platformTabs">
+                    <button class="setup-tab-btn active" onclick="showPlatform('chrome')">Google Chrome</button>
+                    <button class="setup-tab-btn" onclick="showPlatform('edge')">Microsoft Edge</button>
+                    <button class="setup-tab-btn" onclick="showPlatform('firefox')">Firefox</button>
+                    <button class="setup-tab-btn" onclick="showPlatform('android-ios')">Mobile (Browsers)</button>
                 </div>
 
-                <h3 style="margin: 0 0 15px 0;">2. Configure Browser</h3>
-                <p>Go to your browser settings and look for <b>"Secure DNS"</b>. Choose <b>"Custom"</b> and paste your link above.</p>
-                
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 20px;">
-                    <a href="/how-it-works" target="_blank" class="filter-btn" style="text-align: center; text-decoration: none;">View Full Guide ↗</a>
+                <!-- Chrome -->
+                <div id="chrome" class="platform-content active">
+                    <div class="instruction-step">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Copy Settings Path</h4>
+                            <p>Browsers restrict deep links. Copy the path below:</p>
+                            <button onclick="copyPath('chrome://settings/security')" class="deep-link-btn">Copy Path</button>
+                        </div>
+                    </div>
+                    <div class="instruction-step">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Open Settings</h4>
+                            <p>Paste the path in a <b>new tab</b> and press Enter.</p>
+                        </div>
+                    </div>
+                    <div class="instruction-step">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h4>Assign Resolver</h4>
+                            <p>Find <b>"Use secure DNS"</b>. Choose <b>"Custom"</b> and paste your personal Shield link:</p>
+                            <code class="doh-code" style="margin-top: 10px;">https://{{ request.host }}/dns-query/{{ doh_token }}</code>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Edge -->
+                <div id="edge" class="platform-content">
+                    <div class="instruction-step">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Copy Settings Path</h4>
+                            <button onclick="copyPath('edge://settings/privacy')" class="deep-link-btn">Copy Path</button>
+                        </div>
+                    </div>
+                    <div class="instruction-step">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Enable Secure DNS</h4>
+                            <p>Open a new tab with the path. In the <b>Security</b> section, enable <b>"Use secure DNS"</b> and paste your link.</p>
+                            <code class="doh-code" style="margin-top: 10px;">https://{{ request.host }}/dns-query/{{ doh_token }}</code>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Firefox -->
+                <div id="firefox" class="platform-content">
+                    <div class="instruction-step">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Copy Settings Path</h4>
+                            <button onclick="copyPath('about:preferences#privacy')" class="deep-link-btn">Copy Path</button>
+                        </div>
+                    </div>
+                    <div class="instruction-step">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Enable Over HTTPS</h4>
+                            <p>Paste the path in a new tab. Scroll to <b>Network Settings → Settings...</b> and enable <b>"DNS over HTTPS"</b> with your URL.</p>
+                            <code class="doh-code" style="margin-top: 10px;">https://{{ request.host }}/dns-query/{{ doh_token }}</code>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Mobile -->
+                <div id="android-ios" class="platform-content">
+                    <p>Standard browsers on Mobile support Secure DNS settings just like desktop. Follow the same browser settings steps on your phone!</p>
+                    <div class="instruction-step" style="background: var(--btn-bg); padding: 20px; border-radius: 16px; border: 1px dashed var(--card-border); margin-top: 20px;">
+                        <div class="step-content">
+                            <h4>💡 System-wide Protection</h4>
+                            <p>For whole-device protection on Android, use the <b>Private DNS</b> system setting. Note: This requires a hostname instead of a URL (contact local admin for details).</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -1221,6 +1373,20 @@
                 }
             }
         }, 5000);
+
+        // Setup Guide Functions
+        function showPlatform(id) {
+            document.querySelectorAll('.platform-content').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('.setup-tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function copyPath(path) {
+            navigator.clipboard.writeText(path).then(() => {
+                alert(`✓ Path copied: ${path}\n\nNow open a new tab and paste it into the address bar!`);
+            });
+        }
 
     </script>
 </body>

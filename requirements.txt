@@ -1,0 +1,5 @@
+flask
+dnslib
+flask-login
+werkzeug
+waitress

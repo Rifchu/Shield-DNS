@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shield Login</title>
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@900,700,500,400&display=swap" rel="stylesheet">
+    <script>
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme) { document.documentElement.setAttribute('data-theme', savedTheme); }
+        else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) { document.documentElement.setAttribute('data-theme', 'light'); }
+    </script>
+    <style>
+        :root {
+            --bg-grad-1: #020617;
+            --bg-grad-2: #0f172a;
+            --card-bg: rgba(255, 255, 255, 0.03);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --input-bg: rgba(0, 0, 0, 0.25);
+            --input-border: rgba(255, 255, 255, 0.1);
+            --text-primary: #ffffff;
+            --text-secondary: #94a3b8;
+            --accent: #CBDFBD;
+            --accent-text: #020617;
+            --accent-glow: rgba(203, 223, 189, 0.2);
+            --danger-bg: rgba(248,113,113,0.1);
+            --danger-text: #f87171;
+            --radius-lg: 24px;
+            --radius-md: 14px;
+        }
+
+        [data-theme="light"] {
+            --bg-grad-1: #f8fafc;
+            --bg-grad-2: #e2e8f0;
+            --card-bg: rgba(255, 255, 255, 0.8);
+            --card-border: rgba(0, 0, 0, 0.06);
+            --input-bg: rgba(0, 0, 0, 0.04);
+            --input-border: rgba(0, 0, 0, 0.1);
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --accent: #64854b;
+            --accent-text: #ffffff;
+            --accent-glow: rgba(100, 133, 75, 0.3);
+            --danger-bg: rgba(220,38,38,0.1);
+            --danger-text: #dc2626;
+        }
+
+        body { 
+            background: linear-gradient(135deg, var(--bg-grad-1) 0%, var(--bg-grad-2) 100%);
+            font-family: 'Satoshi', sans-serif; 
+            display: flex; justify-content: center; align-items: center; 
+            min-height: 100vh; margin: 0; 
+            color: var(--text-primary);
+            width: 100%;
+            overflow-x: hidden;
+        }
+        .card { 
+            background: var(--card-bg);
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            padding: 50px 40px; 
+            border-radius: var(--radius-lg); 
+            border: 1px solid var(--card-border);
+            box-shadow: 0 16px 40px rgba(0,0,0,0.2); 
+            text-align: center; 
+            width: 340px; 
+            position: relative;
+        }
+        .glow {
+            position: absolute; top: -50px; left: 50%; width: 200px; height: 200px;
+            background: var(--accent); filter: blur(100px); opacity: 0.15; transform: translateX(-50%); z-index: -1;
+        }
+        input { 
+            width: 100%; box-sizing: border-box; padding: 16px; margin-bottom: 20px; 
+            border-radius: var(--radius-md); border: 1px solid var(--input-border); 
+            background: var(--input-bg); color: var(--text-primary); font-family: inherit; font-size: 16px; outline: none; transition: border 0.2s;
+        }
+        input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+        input::placeholder { color: var(--text-secondary); opacity: 0.7; }
+        
+        button { 
+            width: 100%; background: var(--accent); color: var(--accent-text); border: none; padding: 16px; 
+            border-radius: var(--radius-md); font-weight: 700; font-size: 16px; cursor: pointer; transition: transform 0.1s, box-shadow 0.2s; 
+            box-shadow: 0 4px 14px var(--accent-glow);
+        }
+        button:active { transform: scale(0.96); box-shadow: 0 2px 8px var(--accent-glow); }
+        .error { color: var(--danger-text); margin-bottom: 20px; font-size: 14px; font-weight: 600; background: var(--danger-bg); padding: 10px; border-radius: 8px;}
+        a { color: var(--accent); text-decoration: none; font-weight: 700; transition: opacity 0.2s; }
+        a:hover { opacity: 0.8; }
+
+        @media (max-width: 480px) {
+            body { padding: 20px; align-items: flex-start; padding-top: 15vh; }
+            .card { width: 100%; max-width: 340px; padding: 36px 28px; }
+            .card h2 { font-size: 28px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="glow"></div>
+    <div class="card">
+        <h2 style="margin:0 0 10px 0; font-size: 34px; font-weight: 800; letter-spacing:-0.03em;">Shield DNS</h2>
+        <p style="color: var(--text-secondary); margin-bottom: 35px; font-size: 15px;">Secure access to your network.</p>
+        
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+        
+        <form method="POST">
+            <input type="text" name="username" placeholder="Username" required autocomplete="username">
+            <input type="password" name="password" placeholder="Password" required autocomplete="current-password">
+            <button type="submit">Sign In</button>
+        </form>
+        
+        <div style="margin-top: 30px; font-size: 14px; color: var(--text-secondary);">
+            Don't have an account? <a href="/register">Register here</a>
+        </div>
+    </div>
+</body>
+</html>

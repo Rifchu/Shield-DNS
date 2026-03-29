@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shield DNS</title>
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@900,700,500,400&display=swap" rel="stylesheet">
+    <script>
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme) { document.documentElement.setAttribute('data-theme', savedTheme); }
+        else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) { document.documentElement.setAttribute('data-theme', 'light'); }
+    </script>
+    <style>
+        html { overflow-y: scroll; scroll-behavior: smooth; }
+        :root {
+            --bg-grad-1: #020617;
+            --bg-grad-2: #0f172a;
+            --card-bg: rgba(255, 255, 255, 0.03);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --text-primary: #ffffff;
+            --text-secondary: #94a3b8;
+            --accent: #CBDFBD;
+            --accent-glow: rgba(203, 223, 189, 0.2);
+            --radius-lg: 24px;
+            --radius-md: 16px;
+            --content-width: 1000px;
+        }
+
+        [data-theme="light"] {
+            --bg-grad-1: #f8fafc;
+            --bg-grad-2: #e2e8f0;
+            --card-bg: rgba(255, 255, 255, 0.85);
+            --card-border: rgba(0, 0, 0, 0.06);
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --accent: #64854b;
+            --accent-glow: rgba(100, 133, 75, 0.25);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            background: linear-gradient(135deg, var(--bg-grad-1) 0%, var(--bg-grad-2) 100%);
+            background-attachment: fixed;
+            font-family: 'Satoshi', sans-serif;
+            color: var(--text-primary);
+            margin: 0;
+            min-height: 100vh;
+        }
+
+        input, button { font-family: inherit; }
+
+        /* Floating Nav Bar */
+        .navbar {
+            position: sticky;
+            top: 20px;
+            z-index: 100;
+            max-width: var(--content-width);
+            margin: 0 auto 60px auto;
+            padding: 0 20px;
+        }
+
+        .nav-island {
+            background: var(--nav-bg);
+            backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+            border: 1px solid var(--card-border);
+            border-radius: 100px;
+            padding: 8px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+        }
+
+        .brand {
+            font-weight: 700;
+            font-size: 18px;
+            letter-spacing: -0.02em;
+            display: flex; align-items: center; gap: 8px; margin-left: 10px;
+        }
+        .brand::before {
+            content: ''; display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: var(--accent);
+            box-shadow: 0 0 10px var(--accent);
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 8px;
+            background: var(--nav-tabs-bg);
+            padding: 5px;
+            border-radius: 100px;
+        }
+
+        .nav-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 600;
+            padding: 8px 20px;
+            border-radius: 100px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .nav-btn:hover { color: var(--text-primary); }
+        .nav-btn.active {
+            background: var(--text-primary);
+            color: var(--bg-grad-1);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .nav-logout {
+            color: var(--danger-text, #f87171);
+            display: flex; align-items: center;
+            text-decoration: none; padding: 8px 16px; border-radius: 100px; transition: background 0.2s; font-size: 14px; font-weight: 600;
+        }
+        .nav-logout:hover { background: var(--danger-bg); }
+
+        /* Main Content Grid */
+        .main-content {
+            max-width: var(--content-width);
+            margin: 0 auto;
+            padding: 0 20px 100px 20px;
+        }
+
+        .tab-content { display: none; opacity: 0; transform: translateY(10px); transition: all 0.4s ease; }
+        .tab-content.active { display: block; opacity: 1; transform: translateY(0); }
+
+        .hero-section {
+            text-align: center;
+            margin-bottom: 60px;
+            position: relative;
+        }
+
+        .hero-glow {
+            position: absolute; top: 40%; left: 50%; width: 40vw; height: 40vw;
+            background: var(--accent); filter: blur(150px); opacity: 0.1;
+            transform: translate(-50%, -50%); z-index: -1; border-radius: 50%;
+            pointer-events: none;
+        }
+
+        .hero-title {
+            font-size: 72px;
+            line-height: normal;
+            font-weight: 700;
+            letter-spacing: -0.03em;
+            margin: 0 0 30px 0;
+            padding-bottom: 12px;
+            background: linear-gradient(180deg, var(--text-primary), var(--text-secondary)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        
+        .doh-box {
+            background: var(--card-bg);
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--card-border);
+            padding: 24px; border-radius: var(--radius-lg);
+            margin: 0 auto 50px auto; max-width: 650px; text-align: left;
+            position: relative; overflow: hidden;
+            box-shadow: 0 4px 30px rgba(0,0,0,0.3);
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+        .doh-box:hover { border-color: rgba(203, 223, 189, 0.2); box-shadow: 0 8px 40px var(--accent-glow); }
+        .doh-box::before {
+            content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: var(--accent);
+        }
+        .doh-code {
+            background: var(--code-bg); padding: 12px 16px; border-radius: 12px; display: block; margin: 12px 0;
+            border: 1px solid var(--card-border); font-family: ui-monospace, monospace; color: var(--accent); font-size: 14px;
+        }
+
+        .time-filters { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-bottom: 30px; }
+        .filter-btn {
+            background: var(--btn-bg); border: 1px solid var(--card-border); color: var(--text-secondary); align-items: center; justify-content: center;
+            border-radius: 100px; padding: 8px 20px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .filter-btn:hover { background: var(--btn-hover); color: var(--text-primary); transform: translateY(-1px); }
+        .filter-btn.active { background: var(--accent); color: var(--bg-grad-1); border-color: var(--accent); box-shadow: 0 4px 16px var(--accent-glow); }
+
+        .blocked-count {
+            font-size: 140px; font-weight: 900; letter-spacing: -5px; line-height: 1;
+            background: linear-gradient(180deg, var(--accent), #e0e7ff); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+            text-shadow: 0 10px 40px var(--accent-glow); margin-top: 15px;
+        }
+
+        .card {
+            background: var(--card-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 40px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.1); margin-bottom: 30px;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s;
+        }
+        .card:hover { transform: translateY(-4px); box-shadow: 0 16px 50px rgba(0,0,0,0.15); }
+        .card h2 { font-size: 24px; font-weight: 700; margin: 0 0 30px 0; letter-spacing: -0.02em; }
+
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+
+        /* Neon Toggles */
+        .switch { position: relative; display: inline-block; width: 50px; height: 28px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: var(--slider-bg); transition: .3s; border-radius: 28px; border: 1px solid var(--card-border);
+        }
+        .slider:before {
+            position: absolute; content: ""; height: 22px; width: 22px; left: 2px; bottom: 2px;
+            background-color: #94a3b8; transition: .3s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 50%;
+        }
+        input:checked + .slider { background-color: var(--accent); border-color: var(--accent); box-shadow: 0 0 15px var(--accent-glow); }
+        input:checked + .slider:before { transform: translateX(22px); background-color: var(--bg-grad-1); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+
+        .list-row {
+            display: flex; justify-content: space-between; align-items: center; padding: 20px 0; border-bottom: 1px solid var(--card-border);
+        }
+        .list-row:last-child { border-bottom: none; padding-bottom: 0; }
+        .list-row .title { font-weight: 600; font-size: 18px; letter-spacing: -0.01em; }
+
+        .form-row { display: flex; gap: 12px; margin-bottom: 30px; background: var(--row-bg); padding: 8px; border-radius: 16px; border: 1px solid var(--card-border); }
+        .glass-input { flex: 1; padding: 16px 20px; border-radius: 12px; border: none; background: transparent; font-size: 16px; color: var(--text-primary); outline: none; transition: background 0.2s; }
+        .glass-input:focus { background: var(--glass-input-hover); }
+        .glass-btn { background: var(--accent); color: var(--bg-grad-1); border: none; border-radius: 12px; padding: 0 28px; font-weight: 700; cursor: pointer; transition: transform 0.1s, box-shadow 0.2s; box-shadow: 0 4px 12px var(--accent-glow); }
+        .glass-btn:active { transform: scale(0.96); box-shadow: 0 2px 6px var(--accent-glow); }
+
+        .timeline-list { list-style: none; padding: 0; margin: 0; }
+        .timeline-item { padding: 18px 0; border-bottom: 1px solid var(--card-border); display: flex; justify-content: space-between; align-items: center; position: relative; }
+        .timeline-item::before { content: ''; position: absolute; left: -22px; width: 8px; height: 8px; border-radius: 50%; background: var(--card-border); transition: background 0.3s; }
+        .timeline-item.blocked::before { background: #f87171; box-shadow: 0 0 15px rgba(248,113,113,0.6); }
+        .timeline-item:last-child { border-bottom: none; padding-bottom: 0; }
+        .timeline-domain { font-size: 17px; font-weight: 600; color: var(--text-primary); letter-spacing: -0.01em; word-break: break-all; }
+        .log-time { color: var(--text-secondary); font-size: 13px; font-weight: 500; }
+        .log-badge { background: rgba(248, 113, 113, 0.1); color: #f87171; padding: 4px 10px; border-radius: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; border: 1px solid rgba(248, 113, 113, 0.2); margin-right: 12px; letter-spacing: 0.05em; }
+
+        .remove-btn { background: rgba(248,113,113,0.1); color: #f87171; border: 1px solid rgba(248,113,113,0.2); padding: 8px 16px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 13px; transition: all 0.2s; }
+        .remove-btn:hover { background: #f87171; color: #fff; box-shadow: 0 4px 15px rgba(248,113,113,0.4); }
+
+        /* Custom Scrollbar for Logs */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+        /* Responsive Mobile Island */
+        @media (max-width: 768px) {
+            .navbar { position: fixed; top: auto; bottom: 20px; left: 15px; right: 15px; margin: 0; padding: 0; width: auto; z-index: 999; }
+            .nav-island { flex-direction: column; border-radius: 20px; padding: 16px; gap: 16px; box-shadow: 0 -4px 30px rgba(0,0,0,0.5); }
+            .brand { display: none; }
+            .nav-tabs { width: 100%; justify-content: space-between; padding: 6px; background: rgba(0,0,0,0.4); }
+            .nav-btn { font-size: 13px; padding: 12px; flex: 1; text-align: center; }
+            .nav-logout { display: none; } 
+            
+            .hero-title { font-size: 48px; }
+            .blocked-count { font-size: 90px; }
+            .grid-2 { grid-template-columns: 1fr; gap: 20px; }
+            .card { padding: 30px 24px; }
+            .main-content { padding-top: 20px; padding-bottom: 140px; } 
+            
+            .mobile-header { display: flex; justify-content: space-between; align-items: center; padding: 20px; margin-bottom: 20px; }
+            .mobile-brand { font-size: 24px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+            .mobile-brand::before { content: ''; display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+        }
+        @media (min-width: 769px) {
+            .mobile-header { display: none; }
+        }
+    </style>
+</head>
+<body data-is-admin="{{ 'true' if is_admin else 'false' }}">
+
+    <div class="mobile-header">
+        <div class="mobile-brand">Shield</div>
+        <a href="/logout" style="color:#f87171; text-decoration:none; font-weight:600; font-size:14px; background: rgba(248,113,113,0.1); padding: 8px 16px; border-radius: 100px; border: 1px solid rgba(248,113,113,0.2);">Logout</a>
+    </div>
+
+    <nav class="navbar">
+        <div class="nav-island">
+            <div class="brand">Shield DNS</div>
+            <div class="nav-tabs">
+                <button class="nav-btn active" data-tab="overview">Overview</button>
+                <button class="nav-btn" data-tab="blocklist">Rules</button>
+                <button class="nav-btn" data-tab="activity">Logs</button>
+                {% if is_admin %}
+                <button class="nav-btn" data-tab="admin">Admin</button>
+                {% endif %}
+                <button class="nav-btn" id="themeToggleBtn" style="font-size:16px;">🌓</button>
+            </div>
+            <a href="/logout" class="nav-logout">Logout</a>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        
+        <section id="overview" class="tab-content active">
+            <div class="hero-section">
+                <div class="hero-glow"></div>
+                <h1 class="hero-title">Your Secure<br>Network Hub.</h1>
+                
+                <div class="doh-box" style="position: relative;">
+                    <strong style="color: var(--accent); font-size: 15px; text-transform: uppercase; letter-spacing: 0.05em;">Private DNS Profile Link</strong><br>
+                    <code class="doh-code" id="dohCode">https://your-domain.com/dns-query/{{ doh_token }}</code>
+                    <button onclick="copyDoh()" id="copyDohBtn" style="position:absolute; top:16px; right:16px; background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3); color: var(--accent); font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 8px; cursor: pointer; transition: all 0.2s;">Copy</button>
+                    <p style="margin: 0; color:var(--text-secondary); font-size: 14px; line-height: 1.5;">Map this exact payload into your device's global Private DNS configuration to encrypt and filter traffic instantly from any network.</p>
+                </div>
+
+                <div class="card" style="margin-top: 30px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--accent-glow);">
+                    <div>
+                        <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                            Stealth Mode (Zero-Log)
+                            <span id="stealthBadge" style="font-size: 10px; background: rgba(248,113,113,0.1); color: #f87171; padding: 2px 8px; border-radius: 4px; display: none;">ACTIVE</span>
+                        </h3>
+                        <p style="margin: 5px 0 0 0; color: var(--text-secondary); font-size: 13px;">Instantly stop recording all DNS activity logs in the database.</p>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="loggingToggle" onchange="toggleLogging(this.checked)">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                
+                <div class="time-filters">
+                    <button class="filter-btn active" onclick="setPeriod('all', this)">All Time</button>
+                    <button class="filter-btn" onclick="setPeriod('today', this)">Today</button>
+                    <button class="filter-btn" onclick="setPeriod('yesterday', this)">Yesterday</button>
+                    <button class="filter-btn" onclick="setPeriod('7days', this)">7 Days</button>
+                    <button class="filter-btn" onclick="setPeriod('this_month', this)">This Month</button>
+                </div>
+
+                <p style="color: var(--text-secondary); font-size: 18px; margin: 0; font-weight: 500;" id="periodSubtitle">Threats neutralized</p>
+                <div class="blocked-count" id="totalBlocked">0</div>
+            </div>
+
+            <div class="card">
+                <h2>Live Intercepts</h2>
+                <ul id="recentBlocks" class="timeline-list" style="padding-left: 10px;">
+                    <li style="color: var(--text-secondary);">Listening for network hooks...</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="blocklist" class="tab-content">
+            <div class="hero-section" style="margin-bottom: 50px; text-align: left;">
+                <h1 class="hero-title" style="font-size: 48px;">Routing Rules</h1>
+                <p style="color: var(--text-secondary); font-size: 20px;">Enforce strict zone policies instantaneously.</p>
+            </div>
+
+            <div class="grid-2">
+                <div class="card" style="margin-bottom: 0; align-self: start;">
+                    <h2>Category Filters</h2>
+                    <div id="toggles"><p style="color: var(--text-secondary);">Pulling cloud policies...</p></div>
+                </div>
+
+                <div class="card" style="margin-bottom: 0; align-self: start;">
+                    <h2>Custom Domains</h2>
+                    <div class="form-row">
+                        <input type="text" id="domainInput" class="glass-input" placeholder="e.g. tracking.com" autocomplete="off" onkeydown="if(event.key==='Enter') addCustomDomain()">
+                        <button class="glass-btn" onclick="addCustomDomain()">Block</button>
+                    </div>
+                    
+                    <ul id="blockedSitesList" class="timeline-list">
+                        <li style="color: var(--text-secondary);">No custom domains mounted.</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section id="activity" class="tab-content">
+            <div class="hero-section" style="margin-bottom: 50px; text-align: left;">
+                <h1 class="hero-title" style="font-size: 48px;">Global Logs</h1>
+                <p style="color: var(--text-secondary); font-size: 20px;">Complete telemetry history of your device.</p>
+            </div>
+
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+                    <h2 style="margin: 0;">Event Telemetry</h2>
+                    <input type="text" id="logSearch" class="glass-input" placeholder="Search domains..." autocomplete="off" oninput="filterActivity()" style="max-width: 240px; height: 36px; font-size: 13px; padding: 0 14px;">
+                </div>
+                <ul id="activityList" class="timeline-list" style="max-height: 600px; overflow-y: auto; padding-right: 15px; margin-left: 20px;">
+                    <li style="color: var(--text-secondary);">Connecting to stream...</li>
+                </ul>
+            </div>
+        </section>
+
+        {% if is_admin %}
+        <section id="admin" class="tab-content">
+            <div class="hero-section" style="margin-bottom: 50px; text-align: left;">
+                <h1 class="hero-title" style="font-size: 48px;">Root Console</h1>
+                <p style="color: var(--text-secondary); font-size: 20px;">Manage distributed family profiles.</p>
+            </div>
+            <div class="card" style="max-width: 800px; margin: 0 auto;">
+                <h2>Network Identities</h2>
+                <div id="adminUserList">Computing cryptographic links...</div>
+            </div>
+        </section>
+        {% endif %}
+
+    </main>
+
+    <script>
+        // Navigation Logic
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tabId = btn.getAttribute('data-tab');
+                if(!tabId) return;
+
+                document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                document.querySelectorAll('.tab-content').forEach(tc => {
+                    if (tc.id !== tabId) {
+                        tc.classList.remove('active');
+                        tc.style.display = 'none';
+                    }
+                });
+                
+                const t = document.getElementById(tabId);
+                t.style.display = 'block';
+                
+                // Force synchronous browser reflow so CSS fade transition perfectly resolves
+                void t.offsetWidth;
+                t.classList.add('active');
+                
+                if (tabId === 'blocklist') fetchRules();
+                if (tabId === 'activity') fetchActivity();
+                if (tabId === 'admin') typeof fetchAdminUsers === 'function' && fetchAdminUsers();
+                
+                window.scrollTo({top: 0, behavior: 'smooth'});
+            });
+        });
+
+        const IS_ADMIN = document.body.dataset.isAdmin === 'true';
+        let currentPeriod = 'all';
+
+        document.getElementById('themeToggleBtn').addEventListener('click', () => {
+            const current = document.documentElement.getAttribute('data-theme');
+            const target = current === 'light' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', target);
+            localStorage.setItem('theme', target);
+        });
+
+        // Animate Numbers
+        let currentAnimationId = null;
+        function animateValue(obj, start, end, duration) {
+            if (currentAnimationId) window.cancelAnimationFrame(currentAnimationId);
+            let startTimestamp = null;
+            const step = (timestamp) => {
+                if (!startTimestamp) startTimestamp = timestamp;
+                const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+                const ease = progress * (2 - progress);
+                obj.innerHTML = Math.floor(ease * (end - start) + start).toLocaleString();
+                if (progress < 1) {
+                    currentAnimationId = window.requestAnimationFrame(step);
+                } else {
+                    currentAnimationId = null;
+                }
+            };
+            currentAnimationId = window.requestAnimationFrame(step);
+        }
+
+        let fetchStatsId = 0;
+        let _lastBlocksKey = '';
+        async function fetchStats() {
+            fetchStatsId++;
+            const currentFetchId = fetchStatsId;
+            try {
+                const res = await fetch('/api/stats?period=' + currentPeriod);
+                const data = await res.json();
+
+                if (currentFetchId !== fetchStatsId) return;
+
+                // Update the count number (animates smoothly, no flicker)
+                const el = document.getElementById('totalBlocked');
+                const startVal = parseInt(el.innerText.replace(/,/g, '')) || 0;
+                if (startVal !== data.total_blocked) {
+                    animateValue(el, startVal, data.total_blocked, 800);
+                }
+
+                // Build the new list HTML
+                const titles = {
+                    'all': 'All queries securely stopped since your last reset.',
+                    'today': 'Threats neutralized today.',
+                    'yesterday': 'Threats neutralized yesterday.',
+                    '7days': 'Intercepted in the last 7 days.',
+                    'this_month': 'Secured this month.',
+                    'last_month': 'Secured last month.'
+                };
+
+                let newHtml = '';
+                if (data.stealth) {
+                    newHtml = '<li style="color: var(--text-secondary); padding:10px 0;">🔒 Stealth Mode Active — Live Intercepts paused.</li>';
+                } else if (data.recent_blocks.length === 0) {
+                    newHtml = '<li style="color: var(--text-secondary); padding:10px 0;">No blocked threats in this window.</li>';
+                } else {
+                    data.recent_blocks.forEach(b => {
+                        newHtml += `<li class="timeline-item blocked">
+                            <span class="timeline-domain">${b.domain}</span>
+                            <div style="display:flex; align-items:center;">
+                                <span class="log-badge">Intercepted</span>
+                                <span class="log-time">${timeAgo(b.time)}</span>
+                            </div>
+                        </li>`;
+                    });
+                }
+
+                // Only update the DOM (and animate) if the content actually changed
+                const newKey = currentPeriod + '|' + newHtml;
+                const sub = document.getElementById('periodSubtitle');
+                const list = document.getElementById('recentBlocks');
+
+                if (newKey !== _lastBlocksKey) {
+                    _lastBlocksKey = newKey;
+                    sub.style.transition = 'opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
+                    list.style.transition = 'opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
+                    sub.style.opacity = '0';
+                    list.style.opacity = '0';
+                    setTimeout(() => {
+                        sub.innerText = titles[currentPeriod];
+                        list.innerHTML = newHtml;
+                        void list.offsetWidth;
+                        sub.style.opacity = '1';
+                        list.style.opacity = '1';
+                    }, 200);
+                }
+            } catch(e) { console.error(e); }
+        }
+
+        function setPeriod(period, btnElement) {
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            if(btnElement) btnElement.classList.add('active');
+            currentPeriod = period;
+            fetchStats();
+        }
+
+        let _allActivityData = [];
+        async function fetchActivity() {
+            try {
+                const res = await fetch('/api/activity');
+                _allActivityData = await res.json();
+                filterActivity();
+            } catch(e) { console.error(e); }
+        }
+
+        function filterActivity() {
+            const query = (document.getElementById('logSearch')?.value || '').toLowerCase();
+            const list = document.getElementById('activityList');
+            list.innerHTML = '';
+            const acts = query ? _allActivityData.filter(a => a.domain.toLowerCase().includes(query)) : _allActivityData;
+            if (acts.length === 0) {
+                list.innerHTML = query
+                    ? `<li style="color: var(--text-secondary);">No results for "${query}".</li>`
+                    : '<li style="color: var(--text-secondary);">No activity recorded.</li>';
+                return;
+            }
+            acts.forEach(a => {
+                const isBlocked = a.action === 'BLOCKED';
+                list.innerHTML += `
+                    <li class="timeline-item ${isBlocked ? 'blocked' : ''}">
+                        <span class="timeline-domain" style="color:${isBlocked ? 'var(--text-primary)':'var(--text-secondary)'}; font-weight:${isBlocked?'600':'500'};">${a.domain}</span>
+                        <div style="display:flex; align-items:center; text-align:right;">
+                            ${isBlocked ? '<span class="log-badge">Intercepted</span>' : ''}
+                            <span class="log-time">${timeAgo(a.time)}</span>
+                        </div>
+                    </li>`;
+            });
+        }
+
+        function timeAgo(isoString) {
+            const date = new Date(isoString + 'Z');
+            const secs = Math.floor((Date.now() - date) / 1000);
+            if (secs < 5) return 'just now';
+            if (secs < 60) return secs + 's ago';
+            if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+            if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+            return date.toLocaleDateString();
+        }
+
+        function copyDoh() {
+            const text = document.getElementById('dohCode').innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = document.getElementById('copyDohBtn');
+                btn.innerText = '✓ Copied';
+                btn.style.color = '#34d399';
+                setTimeout(() => { btn.innerText = 'Copy'; btn.style.color = 'var(--accent)'; }, 2000);
+            });
+        }
+
+        if (IS_ADMIN) {
+            window.fetchAdminUsers = async () => {
+                try {
+                    const res = await fetch('/api/admin/users');
+                    const users = await res.json();
+                    let html = '<div style="display:flex; flex-direction:column; gap:16px;">';
+                    users.forEach(u => {
+                        html += `
+                            <div class="list-row" style="background:var(--inner-row-bg); padding:24px; border-radius:20px; border:1px solid var(--card-border);">
+                                <div>
+                                    <strong style="font-size:20px;">${u.username}</strong>
+                                    <div style="font-size:14px; color:var(--text-secondary); margin-top:12px;">DoH Token: <code style="background:var(--btn-bg); border:1px solid var(--card-border); padding:6px 10px; border-radius:8px; font-family: monospace; color: var(--accent);">${u.doh_token}</code></div>
+                                </div>
+                                <div style="display:flex; align-items:center;">
+                                    ${u.id !== 1 ? `<button class="remove-btn" onclick="deleteUser(${u.id})">Terminate Sub-Account</button>` : `<span style="color:var(--text-secondary); font-size:13px; font-weight:700; padding:8px 16px; border: 1px solid var(--card-border); border-radius: 100px;">Root Authority</span>`}
+                                </div>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    document.getElementById('adminUserList').innerHTML = html;
+                } catch (e) { console.error("Admin error", e); }
+            }
+        }
+        
+        async function deleteUser(id) {
+            if (!confirm("WARNING: Instantly purge this proxy user? All data and traffic logs will be eradicated.")) return;
+            await fetch('/api/admin/users/' + id, {method: 'DELETE'});
+            fetchAdminUsers();
+        }
+
+        // Fetch Rules
+        async function fetchRules() {
+            try {
+                const res = await fetch('/api/rules');
+                const data = await res.json();
+                
+                const togglesDiv = document.getElementById('toggles');
+                togglesDiv.innerHTML = '';
+                data.categories.forEach(cat => {
+                    let desc = "Hard-drops domain resolution queries.";
+                    if (cat.category === 'Adult') desc = "Routes traffic forcefully through CleanBrowsing Adult Filter.";
+                    if (cat.category === 'Cookies & Tracking') desc = "Intercepts cross-site cookies, fingerprinting modules, and analytics scripts.";
+                    if (cat.category.includes('Meta')) desc = "Severs connection to Facebook/Meta advertising and telemetry infrastructure.";
+                    if (cat.category.includes('TikTok')) desc = "Blocks ByteDance/TikTok data collection and metrics processing.";
+                    if (cat.category === 'Amazon Telemetry') desc = "Neutralizes Amazon shopping and cloud tracking modules.";
+                    togglesDiv.innerHTML += `
+                        <div style="padding-bottom: 25px; border-bottom: 1px solid var(--card-border); margin-bottom: 20px;">
+                            <div class="list-row" style="padding: 0; border: none; margin-bottom: 8px;">
+                                <div class="title">${cat.category}</div>
+                                <label class="switch">
+                                    <input type="checkbox" onchange="toggleCategory('${cat.category}', this.checked)" ${cat.is_active ? 'checked' : ''}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div style="font-size:14px; color:var(--text-secondary); line-height: 1.4; padding-right: 40px; margin-bottom: 10px;">${desc}</div>
+                            <div style="font-size:13px; color: var(--text-secondary); opacity: 0.7; word-break: break-all;">
+                                ${cat.domains.slice(0, 5).join(', ')}${cat.domains.length > 5 ? '...' : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                const sitesList = document.getElementById('blockedSitesList');
+                sitesList.innerHTML = '';
+                if(data.custom_domains.length === 0) {
+                    sitesList.innerHTML = '<li style="color: var(--text-secondary);">No custom domains locked.</li>';
+                } else {
+                    data.custom_domains.forEach(d => {
+                        sitesList.innerHTML += `
+                            <div class="list-row" style="background:var(--row-bg); padding:16px 20px; border-radius:16px; margin-bottom:12px; border:1px solid var(--card-border);">
+                                <span class="title" style="font-size:16px; font-family:monospace;">${d.domain}</span>
+                                <label class="switch">
+                                    <input type="checkbox" onchange="toggleDomain('${d.domain}', this.checked)" ${d.is_active ? 'checked' : ''}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        `;
+                    });
+                }
+            } catch(e) { console.error(e); }
+        }
+
+        async function toggleCategory(category, isActive) {
+            await fetch('/api/rules/category', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({category: category, is_active: isActive ? 1 : 0})
+            });
+        }
+
+        async function toggleDomain(domain, isActive) {
+            await fetch('/api/rules/domain_toggle', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({domain: domain, is_active: isActive ? 1 : 0})
+            });
+        }
+
+        async function addCustomDomain() {
+            const domain = document.getElementById('domainInput').value;
+            if(!domain) return;
+            await fetch('/api/rules/domain', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({domain: domain})
+            });
+            document.getElementById('domainInput').value = '';
+            fetchRules();
+        }
+
+        // Stealth Mode (Zero-Log)
+        async function fetchLoggingStatus() {
+            try {
+                const res = await fetch('/api/user/logging');
+                const data = await res.json();
+                document.getElementById('loggingToggle').checked = !data.enabled;
+                document.getElementById('stealthBadge').style.display = data.enabled ? 'none' : 'inline-block';
+                if (!data.enabled) {
+                    document.getElementById('recentBlocks').innerHTML = '<li style="color: var(--text-secondary);">Stealth Mode Active. Logs paused.</li>';
+                }
+            } catch(e) { console.error(e); }
+        }
+
+        async function toggleLogging(isStealth) {
+            try {
+                await fetch('/api/user/logging', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({enabled: !isStealth})
+                });
+                document.getElementById('stealthBadge').style.display = isStealth ? 'inline-block' : 'none';
+                if (isStealth) {
+                    document.getElementById('recentBlocks').innerHTML = '<li style="color: var(--text-secondary);">Stealth Mode Active. Logs paused.</li>';
+                } else {
+                    fetchStats();
+                    fetchActivity();
+                }
+            } catch(e) { console.error(e); }
+        }
+
+        // Init Data
+        fetchLoggingStatus();
+        fetchStats();
+        fetchRules();
+        
+        setInterval(() => {
+            fetchStats();
+            const loggingOn = !document.getElementById('loggingToggle').checked;
+            if (loggingOn) {
+                if(document.getElementById('activity').classList.contains('active')) {
+                    fetchActivity();
+                }
+            }
+        }, 5000);
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Project Specific
+dns_blocker.db
+secret.key
+
+# IDEs
+.vscode/
+.idea/
+
+# Vercel
+.vercel/

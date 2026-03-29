@@ -322,11 +322,21 @@ def log_request_async(domain, action, user_id):
 def process_dns_query(data, addr, sock, user_id=1, is_doh=False):
     try:
         request_data = DNSRecord.parse(data)
-        qname = str(request_data.q.qname).rstrip('.')
+        qname = str(request_data.q.qname).rstrip('.').lower()
         reply = DNSRecord(DNSHeader(id=request_data.header.id, qr=1, aa=1, ra=1), q=request_data.q)
         
-        user_cache = rules_cache.get(user_id, {'categories': {}, 'domains': set()})
-        is_blocked = any(bd in qname for bd in user_cache['domains'])
+        user_cache = rules_cache.get(user_id)
+        if not user_cache or not user_cache.get('domains'):
+            logger.info(f"Rules cache empty for user {user_id} during DNS query. Reloading...")
+            ensure_default_rules()
+            reload_rules_cache()
+            user_cache = rules_cache.get(user_id, {'categories': {}, 'domains': set()})
+
+        is_blocked = False
+        for bd in user_cache['domains']:
+            if bd in qname:
+                is_blocked = True
+                break
         
         if is_blocked:
             reply.add_answer(RR(qname, QTYPE.A, rdata=A("0.0.0.0")))

@@ -274,50 +274,40 @@ def log_request_async(domain, action, user_id):
 
     last_logged[key] = now
 
-    # Increment the persistent aggregate counter (always, even in stealth mode)
-    if action == "BLOCKED":
-        def _increment():
-            conn = None
-            try:
-                conn = get_db_connection()
-                c = get_cursor(conn)
-                is_postgres = 'POSTGRES_URL' in os.environ
-                p_mark = "%s" if is_postgres else "?"
-                
-                c.execute(f"UPDATE users SET total_blocked = total_blocked + 1 WHERE id = {p_mark}", (user_id,))
-                # Date function compatibility
-                date_func = "CURRENT_DATE" if is_postgres else "date('now', 'localtime')"
-                
-                if is_postgres:
-                    c.execute(f"INSERT INTO blocked_daily (user_id, day, count) VALUES (%s, {date_func}, 1) ON CONFLICT(user_id, day) DO UPDATE SET count = blocked_daily.count + 1", (user_id,))
-                else:
-                    c.execute(f"INSERT INTO blocked_daily (user_id, day, count) VALUES (?, {date_func}, 1) ON CONFLICT(user_id, day) DO UPDATE SET count = count + 1", (user_id,))
-                
-                conn.commit()
-            except Exception as e:
-                logger.warning(f"Failed to increment blocked count: {e}")
-            finally:
-                if conn: conn.close()
-        threading.Thread(target=_increment, daemon=True).start()
-
-    user_cache = rules_cache.get(user_id, {})
-    if not user_cache.get('logging_enabled', True):
-        return
-
-    def _log():
+    # Internal logging logic
+    def _do_log(domain, action, uid):
         conn = None
         try:
             conn = get_db_connection()
             c = get_cursor(conn)
             is_postgres = 'POSTGRES_URL' in os.environ
             p_mark = "%s" if is_postgres else "?"
-            c.execute(f'INSERT INTO logs (user_id, domain, action) VALUES ({p_mark}, {p_mark}, {p_mark})', (user_id, domain, action))
+            
+            # 1. Update counters
+            if action == "BLOCKED":
+                c.execute(f"UPDATE users SET total_blocked = total_blocked + 1 WHERE id = {p_mark}", (uid,))
+                date_func = "CURRENT_DATE" if is_postgres else "date('now', 'localtime')"
+                if is_postgres:
+                    c.execute(f"INSERT INTO blocked_daily (user_id, day, count) VALUES (%s, {date_func}, 1) ON CONFLICT(user_id, day) DO UPDATE SET count = blocked_daily.count + 1", (uid,))
+                else:
+                    c.execute(f"INSERT INTO blocked_daily (user_id, day, count) VALUES (?, {date_func}, 1) ON CONFLICT(user_id, day) DO UPDATE SET count = count + 1", (uid,))
+            
+            # 2. Write log entry (if enabled)
+            c.execute(f"SELECT logging_enabled FROM users WHERE id = {p_mark}", (uid,))
+            logging_row = fetch_one(c)
+            if logging_row and logging_row['logging_enabled']:
+                c.execute(f'INSERT INTO logs (user_id, domain, action) VALUES ({p_mark}, {p_mark}, {p_mark})', (uid, domain, action))
+            
             conn.commit()
         except Exception as e:
-            logger.warning(f"Failed to write log entry: {e}")
+            logger.warning(f"Logging failed for {domain}: {e}")
         finally:
             if conn: conn.close()
-    threading.Thread(target=_log, daemon=True).start()
+
+    if IS_VERCEL:
+        _do_log(domain, action, user_id)
+    else:
+        threading.Thread(target=_do_log, args=(domain, action, user_id), daemon=True).start()
 
 def process_dns_query(data, addr, sock, user_id=1, is_doh=False):
     try:
@@ -672,6 +662,29 @@ def get_stats():
 
     conn.close()
     return jsonify({"total_blocked": total, "recent_blocks": recent, "stealth": is_stealth})
+
+@app.route('/api/debug')
+@login_required
+def get_debug_info():
+    uid = current_user.id
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    
+    c.execute("SELECT count(*) as total FROM rules WHERE user_id = %s" if 'POSTGRES_URL' in os.environ else "SELECT count(*) FROM rules WHERE user_id = ?", (uid,))
+    rules_row = fetch_one(c)
+    
+    c.execute("SELECT count(*) as total FROM logs WHERE user_id = %s" if 'POSTGRES_URL' in os.environ else "SELECT count(*) FROM logs WHERE user_id = ?", (uid,))
+    logs_row = fetch_one(c)
+    
+    conn.close()
+    return jsonify({
+        "user_id": uid,
+        "is_vercel": IS_VERCEL,
+        "database": "Postgres" if 'POSTGRES_URL' in os.environ else "SQLite",
+        "rules_count": rules_row['total'] if rules_row else 0,
+        "logs_count": logs_row['total'] if logs_row else 0,
+        "doh_url": f"https://{request.host}/dns-query/{current_user.doh_token}"
+    })
 
 @app.route('/api/activity')
 @login_required

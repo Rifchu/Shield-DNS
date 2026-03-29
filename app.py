@@ -618,12 +618,55 @@ def admin_delete_user(uid):
     is_postgres = 'POSTGRES_URL' in os.environ
     p_mark = "%s" if is_postgres else "?"
     c.execute(f"DELETE FROM users WHERE id={p_mark}", (uid,))
-    c.execute(f"DELETE FROM rules WHERE user_id={p_mark}", (uid,))
-    c.execute(f"DELETE FROM logs WHERE user_id={p_mark}", (uid,))
     conn.commit()
     conn.close()
     reload_rules_cache()
     return jsonify({"status": "success"})
+
+@app.route('/api/admin/reset-stats', methods=['POST'])
+@login_required
+def admin_reset_stats():
+    if current_user.id != 1: return "Forbidden", 403
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    is_postgres = 'POSTGRES_URL' in os.environ
+    p_mark = "%s" if is_postgres else "?"
+    
+    # Reset all counters
+    c.execute(f"UPDATE users SET total_blocked = 0")
+    c.execute(f"DELETE FROM logs")
+    c.execute(f"DELETE FROM blocked_daily")
+    
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success"})
+
+@app.route('/api/cron/cleanup', methods=['GET', 'POST'])
+def cron_cleanup():
+    # Verify Cron Secret for security
+    expected_secret = os.environ.get('CRON_SECRET', app.secret_key)
+    auth_header = request.headers.get('Authorization')
+    
+    # Vercel sends "Bearer <secret>" or uses a special header
+    if auth_header != f"Bearer {expected_secret}" and request.args.get('key') != expected_secret:
+        # If running as a real Vercel Cron, Vercel might not send the header in certain configs,
+        # but for security we recommend the Bearer token.
+        if not request.headers.get('x-vercel-cron'):
+            return "Unauthorized", 401
+
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    is_postgres = 'POSTGRES_URL' in os.environ
+    
+    # 7-day rotation (keep total_blocked and blocked_daily, only clear detail logs)
+    if is_postgres:
+        c.execute("DELETE FROM logs WHERE \"timestamp\" < CURRENT_TIMESTAMP - INTERVAL '7 days'")
+    else:
+        c.execute("DELETE FROM logs WHERE timestamp < datetime('now', '-7 days')")
+        
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success", "message": "Rotated logs older than 7 days"})
 
 @app.route('/api/stats')
 @login_required

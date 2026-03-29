@@ -940,6 +940,12 @@
                 <h2>Network Identities</h2>
                 <div id="adminUserList">Computing cryptographic links...</div>
             </div>
+
+            <div class="card reveal" style="max-width: 800px; margin: 30px auto 0 auto; border: 1px solid rgba(248,113,113,0.3);">
+                <h2 style="color: #f87171;">⚠️ Database Maintenance</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">Permanently wipe all logs, daily statistics, and reset the global blocked counters for all users. This action cannot be undone.</p>
+                <button onclick="resetAllStats()" class="remove-btn" style="width: auto; padding: 12px 24px; font-size: 15px;">Reset All Logs & Statistics</button>
+            </div>
         </section>
         {% endif %}
 
@@ -1450,6 +1456,27 @@
             navigator.clipboard.writeText(path).then(() => {
                 alert(`✓ Path copied: ${path}\n\nNow open a new tab and paste it into the address bar!`);
             });
+        }
+
+        // Admin: Reset All Stats
+        async function resetAllStats() {
+            if (!confirm("⚠️ CAUTION: This will permanently delete ALL logs, daily data, and reset counters for EVERY user on the server (local and cloud).\n\nAre you absolutely sure?")) {
+                return;
+            }
+            
+            try {
+                const res = await fetch('/api/admin/reset-stats', { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    alert('Database reset successful.');
+                    window.location.reload();
+                } else {
+                    alert('Reset failed: ' + (data.message || 'Unknown error'));
+                }
+            } catch (e) {
+                console.error(e);
+                alert('An error occurred during reset.');
+            }
         }
 
     </script>

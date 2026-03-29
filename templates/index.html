@@ -103,6 +103,14 @@
             animation-duration: 0.5s;
         }
 
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .rotating .refresh-icon {
+            animation: rotate 0.8s linear infinite;
+        }
+
         input, button { font-family: inherit; }
 
         /* Floating Nav Bar */

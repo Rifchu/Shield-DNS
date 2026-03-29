@@ -162,6 +162,7 @@
             margin-top: 20px;
             border: 1px solid rgba(255,255,255,0.05);
             transition: all 0.2s;
+            cursor: pointer;
         }
         .deep-link-btn:hover { transform: translateY(-2px); background: var(--accent); color: var(--bg-grad-1); }
 
@@ -242,23 +243,23 @@
                 <div class="instruction-step">
                     <div class="step-number">1</div>
                     <div class="step-content">
-                        <h4>Open Security Settings</h4>
-                        <p>Click the button below to jump straight to your security settings:</p>
-                        <a href="chrome://settings/security" class="deep-link-btn" onclick="alert('Copy this link and paste it into your address bar: chrome://settings/security')">Open Chrome Settings</a>
+                        <h4>Copy Settings Path</h4>
+                        <p>Browsers block external links to their settings for security. Click below to copy the path to your settings:</p>
+                        <button onclick="copyPath('chrome://settings/security')" class="deep-link-btn">Copy Setting Path</button>
                     </div>
                 </div>
                 <div class="instruction-step">
                     <div class="step-number">2</div>
                     <div class="step-content">
-                        <h4>Enable Secure DNS</h4>
-                        <p>Scroll down to <b>"Use secure DNS"</b> and make sure it is toggled <b>ON</b>.</p>
+                        <h4>Open Settings</h4>
+                        <p>Open a **new tab** and paste the path you just copied into your address bar.</p>
                     </div>
                 </div>
                 <div class="instruction-step">
                     <div class="step-number">3</div>
                     <div class="step-content">
-                        <h4>Select Custom Provider</h4>
-                        <p>Select <b>"With: Custom"</b> and paste your personal <b>Shield DNS URL</b> from your dashboard.</p>
+                        <h4>Enable Secure DNS</h4>
+                        <p>Scroll down to <b>"Use secure DNS"</b>. Choose <b>"Custom"</b> and paste your personal Shield DNS URL from your dashboard.</p>
                     </div>
                 </div>
             </div>
@@ -268,23 +269,15 @@
                 <div class="instruction-step">
                     <div class="step-number">1</div>
                     <div class="step-content">
-                        <h4>Open Privacy Settings</h4>
-                        <p>Copy and paste this into your address bar:</p>
-                        <code>edge://settings/privacy</code>
+                        <h4>Copy Privacy Path</h4>
+                        <button onclick="copyPath('edge://settings/privacy')" class="deep-link-btn">Copy Setting Path</button>
                     </div>
                 </div>
                 <div class="instruction-step">
                     <div class="step-number">2</div>
                     <div class="step-content">
                         <h4>Configure DNS</h4>
-                        <p>Go to the <b>Security</b> section and enable <b>"Use secure DNS to specify how to lookup the network address for websites"</b>.</p>
-                    </div>
-                </div>
-                <div class="instruction-step">
-                    <div class="step-number">3</div>
-                    <div class="step-content">
-                        <h4>Enter Shield URL</h4>
-                        <p>Select <b>"Choose a service provider"</b>, click the input box, and paste your Shield DNS URL.</p>
+                        <p>Paste the path in a new tab. In the <b>Security</b> section, enable <b>"Use secure DNS"</b> and paste your Shield URL.</p>
                     </div>
                 </div>
             </div>
@@ -294,23 +287,15 @@
                 <div class="instruction-step">
                     <div class="step-number">1</div>
                     <div class="step-content">
-                        <h4>Open Preferences</h4>
-                        <p>Copy and paste this into your address bar:</p>
-                        <code>about:preferences#privacy</code>
+                        <h4>Copy Privacy Path</h4>
+                        <button onclick="copyPath('about:preferences#privacy')" class="deep-link-btn">Copy Setting Path</button>
                     </div>
                 </div>
                 <div class="instruction-step">
                     <div class="step-number">2</div>
                     <div class="step-content">
-                        <h4>DNS over HTTPS</h4>
-                        <p>Scroll to the bottom to <b>"Settings..."</b> under <b>"Network Settings"</b>.</p>
-                    </div>
-                </div>
-                <div class="instruction-step">
-                    <div class="step-number">3</div>
-                    <div class="step-content">
                         <h4>Enable Protection</h4>
-                        <p>Check <b>"Enable DNS over HTTPS"</b>. Select <b>"Custom"</b> and enter your Shield DNS URL.</p>
+                        <p>Paste in a new tab. Scroll to <b>Network Settings → Settings...</b> and enable <b>"DNS over HTTPS"</b> with your custom URL.</p>
                     </div>
                 </div>
             </div>
@@ -336,6 +321,12 @@
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.getElementById(id).classList.add('active');
             event.target.classList.add('active');
+        }
+
+        function copyPath(path) {
+            navigator.clipboard.writeText(path).then(() => {
+                alert(`✓ Path copied: ${path}\n\nNow open a new tab and paste it into the address bar!`);
+            });
         }
     </script>
 </body>

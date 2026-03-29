@@ -325,18 +325,37 @@ def process_dns_query(data, addr, sock, user_id=1, is_doh=False):
         qname = str(request_data.q.qname).rstrip('.').lower()
         reply = DNSRecord(DNSHeader(id=request_data.header.id, qr=1, aa=1, ra=1), q=request_data.q)
         
-        user_cache = rules_cache.get(user_id)
-        if not user_cache or not user_cache.get('domains'):
-            logger.info(f"Rules cache empty for user {user_id} during DNS query. Reloading...")
-            ensure_default_rules()
-            reload_rules_cache()
-            user_cache = rules_cache.get(user_id, {'categories': {}, 'domains': set()})
-
+        # On Vercel (Serverless), we must check the DB directly for reliability
         is_blocked = False
-        for bd in user_cache['domains']:
-            if bd in qname:
-                is_blocked = True
-                break
+        is_adult = False
+        is_malware = False
+        
+        conn = None
+        try:
+            conn = get_db_connection()
+            c = get_cursor(conn)
+            is_postgres = 'POSTGRES_URL' in os.environ
+            p_mark = "%s" if is_postgres else "?"
+            
+            # 1. Check all active categories to set upstream DNS flags (Adult/Malware)
+            c.execute(f"SELECT category FROM rules WHERE user_id={p_mark} AND is_active=1 AND category != 'Specific Website'", (user_id,))
+            for r in fetch_all(c):
+                if r['category'] == 'Adult': is_adult = True
+                if r['category'] == 'Malware & Phishing': is_malware = True
+            
+            # 2. Check if the requested domain is in the active block list (category domains + custom domains)
+            c.execute(f"SELECT domain FROM rules WHERE user_id={p_mark} AND is_active=1", (user_id,))
+            all_blocked_domains = [r['domain'] for r in fetch_all(c)]
+            
+            for bd in all_blocked_domains:
+                if bd and bd in qname:
+                    is_blocked = True
+                    break
+                
+        except Exception as db_e:
+            logger.error(f"DB lookup during DNS query failed: {db_e}")
+        finally:
+            if conn: conn.close()
         
         if is_blocked:
             reply.add_answer(RR(qname, QTYPE.A, rdata=A("0.0.0.0")))
@@ -346,9 +365,6 @@ def process_dns_query(data, addr, sock, user_id=1, is_doh=False):
             return res_packed
         else:
             try:
-                is_adult = user_cache['categories'].get('Adult', False)
-                is_malware = user_cache['categories'].get('Malware & Phishing', False)
-                
                 upstream_dns = "8.8.8.8"
                 if is_adult: upstream_dns = "185.228.168.10"
                 elif is_malware: upstream_dns = "9.9.9.9"

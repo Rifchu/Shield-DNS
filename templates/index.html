@@ -916,11 +916,6 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 16px;">
                     <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
                         <h2 style="margin: 0;">Event Telemetry</h2>
-                        <div class="filter-group" style="display: flex; gap: 8px;">
-                            <button class="filter-btn active" id="logFilterAll" onclick="setLogFilter('all')">All</button>
-                            <button class="filter-btn" id="logFilterBlocked" onclick="setLogFilter('blocked')">Blocked</button>
-                            <button class="filter-btn" id="logFilterAllowed" onclick="setLogFilter('allowed')">Allowed</button>
-                        </div>
                     </div>
                     <input type="text" id="logSearch" placeholder="Search domains..." autocomplete="off" oninput="filterActivity()" style="background: var(--btn-bg); border: 1px solid var(--card-border); border-radius: 100px; padding: 8px 18px; font-size: 13px; color: var(--text-primary); font-family: inherit; outline: none; width: 210px; transition: border-color 0.2s;" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--card-border)'">
                 </div>
@@ -1171,16 +1166,6 @@
         }
 
         let _allActivityData = [];
-        let currentLogFilter = 'all';
-
-        function setLogFilter(filter) {
-            currentLogFilter = filter;
-            document.querySelectorAll('#activity .filter-btn').forEach(btn => btn.classList.remove('active'));
-            if (filter === 'all') document.getElementById('logFilterAll').classList.add('active');
-            if (filter === 'blocked') document.getElementById('logFilterBlocked').classList.add('active');
-            if (filter === 'allowed') document.getElementById('logFilterAllowed').classList.add('active');
-            filterActivity();
-        }
 
         async function fetchActivity() {
             try {
@@ -1193,16 +1178,10 @@
         function filterActivity() {
             const query = (document.getElementById('logSearch')?.value || '').toLowerCase();
             const list = document.getElementById('activityList');
+            if (!list) return;
             list.innerHTML = '';
             
             let acts = _allActivityData;
-            
-            // Apply Status Filter
-            if (currentLogFilter === 'blocked') {
-                acts = acts.filter(a => a.action === 'BLOCKED');
-            } else if (currentLogFilter === 'allowed') {
-                acts = acts.filter(a => a.action === 'ALLOWED');
-            }
             
             // Apply Search Query
             if (query) {
@@ -1210,19 +1189,17 @@
             }
             
             if (acts.length === 0) {
-                list.innerHTML = query
-                    ? `<li style="color: var(--text-secondary);">No matching results.</li>`
-                    : `<li style="color: var(--text-secondary);">No ${currentLogFilter !== 'all' ? currentLogFilter : ''} activity recorded.</li>`;
+                list.innerHTML = `<li style="color: var(--text-secondary); padding:10px 0;">${query ? 'No matching results.' : 'No activity recorded yet.'}</li>`;
                 return;
             }
+            
             acts.forEach(a => {
-                const isBlocked = a.action === 'BLOCKED';
                 const safeDomain = escapeHtml(a.domain);
                 list.innerHTML += `
-                    <li class="timeline-item ${isBlocked ? 'blocked' : ''}">
-                        <span class="timeline-domain" style="color:${isBlocked ? 'var(--text-primary)':'var(--text-secondary)'}; font-weight:${isBlocked?'600':'500'};">${safeDomain}</span>
+                    <li class="timeline-item blocked">
+                        <span class="timeline-domain" style="color:var(--text-primary); font-weight:600;">${safeDomain}</span>
                         <div style="display:flex; align-items:center; text-align:right;">
-                            ${isBlocked ? '<span class="log-badge">Intercepted</span>' : ''}
+                            <span class="log-badge">Intercepted</span>
                             <span class="log-time">${timeAgo(a.time)}</span>
                         </div>
                     </li>`;

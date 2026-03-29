@@ -591,7 +591,7 @@
                         <span class="doh-label">Private DNS Profile Link</span>
                         <button onclick="copyDoh()" id="copyDohBtn" class="doh-copy-btn">Copy</button>
                     </div>
-                    <code class="doh-code" id="dohCode">https://your-domain.com/dns-query/{{ doh_token }}</code>
+                    <code class="doh-code" id="dohCode">https://{{ request.host }}/dns-query/{{ doh_token }}</code>
                     <p style="margin: 0; color:var(--text-secondary); font-size: 14px; line-height: 1.6;">Configure this URL in your device's Private DNS settings to route all traffic through your personal Shield DNS resolver.</p>
                 </div>
 

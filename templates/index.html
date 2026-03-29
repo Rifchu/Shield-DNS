@@ -659,6 +659,7 @@
                 <button class="nav-btn" data-tab="blocklist">Rules</button>
                 <button class="nav-btn" data-tab="activity">Logs</button>
                 <button class="nav-btn" data-tab="setup">Setup</button>
+                <button class="nav-btn" data-tab="user">User</button>
                 {% if is_admin %}
                 <button class="nav-btn" data-tab="admin">Admin</button>
                 {% endif %}
@@ -732,23 +733,6 @@
                     </div>
                 </div>
 
-                <div class="card reveal" style="margin-top: 30px; text-align: left;">
-                    <h2 style="font-size: 20px; margin-bottom: 20px;">🔒 Security & Account</h2>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px;">
-                        <div>
-                            <label style="display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">Current Password</label>
-                            <input type="password" id="currentPassword" class="glass-input" placeholder="••••••••" style="width: 100%; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label style="display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">New Password</label>
-                            <input type="password" id="newPassword" class="glass-input" placeholder="••••••••" style="width: 100%; box-sizing: border-box;">
-                        </div>
-                    </div>
-                    <div style="margin-top: 20px;">
-                        <button id="updatePwBtn" onclick="changePassword()" class="filter-btn" style="background: var(--accent); color: var(--bg-grad-1); border: 1px solid var(--accent); padding: 10px 24px;">Update Password</button>
-                        <span id="pwStatus" style="font-size: 13px; margin-left: 15px;"></span>
-                    </div>
-                </div>
                 
                 <div class="time-filters">
                     <button class="filter-btn active" onclick="setPeriod('all', this)">All Time</button>
@@ -961,6 +945,55 @@
             </div>
         </section>
         {% endif %}
+
+        <section id="user" class="tab-content">
+            <div class="hero-section" style="margin-bottom: 50px; text-align: left;">
+                <h1 class="hero-title" style="font-size: 48px;">Account Settings</h1>
+                <p style="color: var(--text-secondary); font-size: 20px;">Manage your profile and security parameters.</p>
+            </div>
+
+            <div class="card reveal" style="max-width: 800px; margin: 0 auto 30px auto; text-align: left;">
+                <h2 style="font-size: 20px; margin-bottom: 20px;">👤 Profile Overview</h2>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px;">
+                    <div>
+                        <label style="display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;">Username</label>
+                        <div style="font-size: 16px; font-weight: 600;">{{ username }}</div>
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;">Account Type</label>
+                        <div style="font-size: 14px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px;">
+                            <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--accent);"></span>
+                            {{ 'Root Administrator' if is_admin else 'Standard User' }}
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--card-border);">
+                    <label style="display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">Private DNS Token</label>
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <code style="background: var(--row-bg); padding: 10px 16px; border-radius: 10px; border: 1px solid var(--card-border); font-family: monospace; color: var(--accent); flex: 1; word-break: break-all;">{{ doh_token }}</code>
+                        <button onclick="navigator.clipboard.writeText('{{ doh_token }}').then(() => { const b = this; const old = b.innerText; b.innerText = '✓'; setTimeout(() => b.innerText = old, 2000); })" class="filter-btn" style="padding: 8px 16px;">Copy</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card reveal" style="max-width: 800px; margin: 0 auto; text-align: left;">
+                <h2 style="font-size: 20px; margin-bottom: 20px;">🔒 Security & Password</h2>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px;">
+                    <div>
+                        <label style="display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">Current Password</label>
+                        <input type="password" id="currentPassword" class="glass-input" placeholder="••••••••" style="width: 100%; box-sizing: border-box;">
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">New Password</label>
+                        <input type="password" id="newPassword" class="glass-input" placeholder="••••••••" style="width: 100%; box-sizing: border-box;">
+                    </div>
+                </div>
+                <div style="margin-top: 20px;">
+                    <button id="updatePwBtn" onclick="changePassword()" class="filter-btn" style="background: var(--accent); color: var(--bg-grad-1); border: 1px solid var(--accent); padding: 10px 24px;">Update Password</button>
+                    <span id="pwStatus" style="font-size: 13px; margin-left: 15px;"></span>
+                </div>
+            </div>
+        </section>
 
     </main>
 

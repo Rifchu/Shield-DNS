@@ -62,7 +62,9 @@
             border: 1px solid var(--card-border);
             box-shadow: 0 16px 40px rgba(0,0,0,0.2); 
             text-align: center; 
-            width: 340px; 
+            width: 100%;
+            max-width: 400px;
+            box-sizing: border-box;
             position: relative;
         }
         .glow {
@@ -88,9 +90,9 @@
         a:hover { opacity: 0.8; }
 
         @media (max-width: 480px) {
-            body { padding: 20px; align-items: flex-start; padding-top: 15vh; }
-            .card { width: 100%; max-width: 340px; padding: 36px 28px; }
-            .card h2 { font-size: 28px; }
+            body { padding: 20px; align-items: center; }
+            .card { padding: 40px 24px; }
+            .card h2 { font-size: 30px; }
         }
     </style>
 </head>

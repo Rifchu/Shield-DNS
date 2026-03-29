@@ -342,10 +342,10 @@ def log_request_async(domain, action, user_id, qtype=1):
                 else:
                     c.execute(f"INSERT INTO blocked_daily (user_id, day, count) VALUES (?, {date_func}, 1) ON CONFLICT(user_id, day) DO UPDATE SET count = count + 1", (uid,))
             
-            # 2. Write log entry (if enabled)
+            # 2. Write log entry (if enabled and blocked)
             c.execute(f"SELECT logging_enabled FROM users WHERE id = {p_mark}", (uid,))
             logging_row = fetch_one(c)
-            if logging_row and logging_row['logging_enabled']:
+            if action == "BLOCKED" and logging_row and logging_row['logging_enabled']:
                 enc_domain = encrypt_domain(domain, uid)
                 c.execute(f'INSERT INTO logs (user_id, domain, action) VALUES ({p_mark}, {p_mark}, {p_mark})', (uid, enc_domain, action))
             

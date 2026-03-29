@@ -918,10 +918,6 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 16px;">
                     <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
                         <h2 style="margin: 0;">Event Telemetry</h2>
-                        <select id="logStatusFilter" onchange="fetchActivity()" style="background: var(--btn-bg); border: 1px solid var(--card-border); border-radius: 100px; padding: 6px 16px; font-size: 13px; color: var(--text-primary); cursor: pointer; outline: none; transition: border-color 0.2s;">
-                            <option value="BLOCKED">Blocked Only</option>
-                            <option value="all">All Activity</option>
-                        </select>
                     </div>
                     <input type="text" id="logSearch" placeholder="Search domains..." autocomplete="off" oninput="filterActivity()" style="background: var(--btn-bg); border: 1px solid var(--card-border); border-radius: 100px; padding: 8px 18px; font-size: 13px; color: var(--text-primary); font-family: inherit; outline: none; width: 210px; transition: border-color 0.2s;" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--card-border)'">
                 </div>
@@ -1224,8 +1220,7 @@
 
         async function fetchActivity() {
             try {
-                const status = document.getElementById('logStatusFilter').value;
-                const res = await fetch(`/api/activity?status=${status}`);
+                const res = await fetch(`/api/activity`);
                 _allActivityData = await res.json();
                 filterActivity();
             } catch(e) { console.error(e); }
@@ -1253,10 +1248,10 @@
                 const safeDomain = escapeHtml(a.domain);
                 const isBlocked = a.action === 'BLOCKED';
                 list.innerHTML += `
-                    <li class="timeline-item ${isBlocked ? 'blocked' : 'allowed'}">
+                    <li class="timeline-item blocked">
                         <span class="timeline-domain" style="color:var(--text-primary); font-weight:600;">${safeDomain}</span>
                         <div style="display:flex; align-items:center; text-align:right;">
-                            <span class="log-badge" style="background:${isBlocked ? 'rgba(248,113,113,0.1)' : 'rgba(74,222,128,0.1)'}; color:${isBlocked ? '#f87171' : '#4ade80'}; border:1px solid ${isBlocked ? 'rgba(248,113,113,0.2)' : 'rgba(74,222,128,0.2)'}">${isBlocked ? 'Intercepted' : 'Allowed'}</span>
+                            <span class="log-badge" style="background:rgba(248,113,113,0.1); color:#f87171; border:1px solid rgba(248,113,113,0.2)">Intercepted</span>
                             <span class="log-time" style="color:var(--text-secondary); opacity:0.6; font-size:12px; margin-left:12px; min-width:60px;">${timeAgo(a.time)}</span>
                         </div>
                     </li>`;

@@ -367,11 +367,20 @@ def process_dns_query(data, addr, sock, user_id=1, is_doh=False):
             return res_packed
         else:
             try:
-                upstream_dns = "8.8.8.8"
-                if is_adult: upstream_dns = "185.228.168.10"
-                elif is_malware: upstream_dns = "9.9.9.9"
+                # Use DoH Upstreams for better reliability on Vercel
+                upstream_url = "https://dns.google/dns-query"
+                if is_adult: upstream_url = "https://doh.cleanbrowsing.org/doh/adult-filter/"
+                elif is_malware: upstream_url = "https://dns.quad9.net/dns-query"
                 
-                real_dns_response = request_data.send(upstream_dns, 53, timeout=3)
+                # Fetch via HTTPS
+                import urllib.request
+                req = urllib.request.Request(
+                    upstream_url, 
+                    data=data, 
+                    headers={'Content-Type': 'application/dns-message', 'Accept': 'application/dns-message'}
+                )
+                with urllib.request.urlopen(req, timeout=3) as response:
+                    real_dns_response = response.read()
                 
                 action = "ALLOWED"
                 try:

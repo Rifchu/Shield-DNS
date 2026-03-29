@@ -668,6 +668,11 @@ def get_stats():
     conn.close()
     return jsonify({"total_blocked": total, "recent_blocks": recent, "stealth": is_stealth})
 
+@app.route('/how-it-works')
+@app.route('/setup')
+def setup_guide():
+    return render_template('setup.html')
+
 @app.route('/api/debug')
 @login_required
 def get_debug_info():

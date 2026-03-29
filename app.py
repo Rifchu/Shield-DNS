@@ -345,7 +345,7 @@ def log_request_async(domain, action, user_id, qtype=1):
             # 2. Write log entry (if enabled)
             c.execute(f"SELECT logging_enabled FROM users WHERE id = {p_mark}", (uid,))
             logging_row = fetch_one(c)
-            if logging_row and logging_row['logging_enabled'] and action == "BLOCKED":
+            if logging_row and logging_row['logging_enabled']:
                 enc_domain = encrypt_domain(domain, uid)
                 c.execute(f'INSERT INTO logs (user_id, domain, action) VALUES ({p_mark}, {p_mark}, {p_mark})', (uid, enc_domain, action))
             
@@ -426,7 +426,10 @@ def process_dns_query(data, addr, sock, user_id=1, is_doh=False):
                 action = "ALLOWED"
                 try:
                     resp_obj = DNSRecord.parse(real_dns_response)
-                    if resp_obj.header.rcode == 3:
+                    # Treat NXDOMAIN (3), SERVFAIL (2), or REFUSED (5) as a block if filter is active
+                    if resp_obj.header.rcode in [2, 3, 5] and (is_adult or is_malware):
+                        action = "BLOCKED"
+                    elif resp_obj.header.rcode == 3: # Always block NXDOMAIN if it's supposed to be missing
                         action = "BLOCKED"
                     else:
                         is_cname_blocked = False
@@ -831,6 +834,8 @@ def get_debug_info():
 @login_required
 def get_activity():
     uid = current_user.id
+    status_filter = request.args.get('status', 'BLOCKED') # Default to BLOCKED as per user preference
+    
     conn = get_db_connection()
     c = get_cursor(conn)
     is_postgres = 'POSTGRES_URL' in os.environ
@@ -841,7 +846,16 @@ def get_activity():
     if logging_row and not logging_row['logging_enabled']:
         conn.close()
         return jsonify([])
-    c.execute(f"SELECT domain, action, \"timestamp\" FROM logs WHERE user_id={p_mark} ORDER BY \"timestamp\" DESC LIMIT 200", (uid,))
+
+    query = f"SELECT domain, action, \"timestamp\" FROM logs WHERE user_id={p_mark}"
+    params = [uid]
+    
+    if status_filter == 'BLOCKED':
+        query += " AND action = 'BLOCKED'"
+    
+    query += " ORDER BY \"timestamp\" DESC LIMIT 200"
+    
+    c.execute(query, tuple(params))
     acts = [{"domain": decrypt_domain(r['domain'], uid), "action": r['action'], "time": str(r['timestamp'])} for r in fetch_all(c)]
     conn.close()
     return jsonify(acts)

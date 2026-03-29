@@ -337,19 +337,21 @@ def process_dns_query(data, addr, sock, user_id=1, is_doh=False):
             is_postgres = 'POSTGRES_URL' in os.environ
             p_mark = "%s" if is_postgres else "?"
             
-            # 1. Check all active categories to set upstream DNS flags (Adult/Malware)
-            c.execute(f"SELECT category FROM rules WHERE user_id={p_mark} AND is_active=1 AND category != 'Specific Website'", (user_id,))
+            # 1. Check all active categories to set upstream DNS flags
+            c.execute(f"SELECT DISTINCT category FROM rules WHERE user_id={p_mark} AND is_active=1 AND category != 'Specific Website'", (user_id,))
             for r in fetch_all(c):
                 if r['category'] == 'Adult': is_adult = True
                 if r['category'] == 'Malware & Phishing': is_malware = True
             
-            # 2. Check if the requested domain is in the active block list (category domains + custom domains)
+            # 2. Hard-block list (Specific domains + All domains in active categories)
             c.execute(f"SELECT domain FROM rules WHERE user_id={p_mark} AND is_active=1", (user_id,))
-            all_blocked_domains = [r['domain'] for r in fetch_all(c)]
+            blocked_list = {r['domain'].lower() for r in fetch_all(c)}
             
-            for bd in all_blocked_domains:
-                if bd and bd in qname:
+            # Match qname against blocked domains (exact or as a parent domain)
+            for bd in blocked_list:
+                if bd == qname or qname.endswith('.' + bd):
                     is_blocked = True
+                    logger.info(f"BLOCKED: {qname} caught by rule {bd} for user {user_id}")
                     break
                 
         except Exception as db_e:

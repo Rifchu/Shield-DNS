@@ -194,9 +194,9 @@
             padding: 0 20px 100px 20px;
         }
 
-        .tab-content { display: none; }
+        .tab-content { display: none !important; }
         .tab-content.active { 
-            display: block; 
+            display: block !important; 
             animation: tabFadeIn 0.5s cubic-bezier(0.23, 1, 0.32, 1) both; 
         }
         /* Scroll Reveal Animations */
@@ -596,6 +596,30 @@
                     <p style="margin: 0; color:var(--text-secondary); font-size: 14px; line-height: 1.6;">Configure this URL in your device's Private DNS settings to route all traffic through your personal Shield DNS resolver.</p>
                 </div>
 
+                <!-- New Quick Setup Steps -->
+                <div class="card reveal" style="padding: 30px; margin-top: 0; text-align: left;">
+                    <h2 style="font-size: 20px; margin-bottom: 20px;">⚡ Quick Setup</h2>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px;">
+                        <div style="background: var(--row-bg); padding: 20px; border-radius: 16px; border: 1px solid var(--card-border);">
+                            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                                <span style="background: var(--accent); color: var(--bg-grad-1); width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px;">1</span>
+                                <strong style="font-size: 15px;">Copy your Endpoint</strong>
+                            </div>
+                            <p style="font-size: 13px; color: var(--text-secondary); margin: 0;">Copy the Private DNS link above. Each account has a unique cryptographic token for secure routing.</p>
+                        </div>
+                        <div style="background: var(--row-bg); padding: 20px; border-radius: 16px; border: 1px solid var(--card-border);">
+                            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                                <span style="background: var(--accent); color: var(--bg-grad-1); width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px;">2</span>
+                                <strong style="font-size: 15px;">Paste in Settings</strong>
+                            </div>
+                            <p style="font-size: 13px; color: var(--text-secondary); margin: 0;">In your Browser (Chrome/Edge/Firefox) search for <b>"Secure DNS"</b> and paste the link in the <b>Custom</b> field.</p>
+                        </div>
+                    </div>
+                    <div style="margin-top: 20px; display: flex; gap: 10px;">
+                        <button onclick="document.querySelector('[data-tab=\'setup\']').click()" class="filter-btn" style="background: var(--accent-glow); color: var(--accent); border: 1px solid var(--accent);">View Detailed Guide</button>
+                    </div>
+                </div>
+
                 <div class="stealth-card reveal" id="stealthCard">
                     <div class="stealth-info" style="flex: 1;">
                         <div class="stealth-header-mobile" style="display: flex; justify-content: space-between; align-items: center;">
@@ -630,13 +654,6 @@
 
                 <p style="color: var(--text-secondary); font-size: 18px; margin: 0; font-weight: 500;" id="periodSubtitle">Threats neutralized</p>
                 <div class="blocked-count" id="totalBlocked">0</div>
-            </div>
-
-            <div class="card">
-                <h2>Live Intercepts</h2>
-                <ul id="recentBlocks" class="timeline-list" style="padding-left: 10px;">
-                    <li style="color: var(--text-secondary);">Listening for network hooks...</li>
-                </ul>
             </div>
         </section>
 
@@ -688,6 +705,8 @@
                 </div>
             </div>
         </section>
+        
+        <section id="activity" class="tab-content">
             <div class="hero-section" style="margin-bottom: 50px; text-align: left;">
                 <h1 class="hero-title" style="font-size: 48px;">Global Logs</h1>
                 <p style="color: var(--text-secondary); font-size: 20px;">Complete telemetry history of your device.</p>
@@ -899,16 +918,24 @@
 
                 if (newKey !== _lastBlocksKey) {
                     _lastBlocksKey = newKey;
-                    sub.style.transition = 'opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
-                    list.style.transition = 'opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
-                    sub.style.opacity = '0';
-                    list.style.opacity = '0';
+                    if (sub) {
+                        sub.style.transition = 'opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
+                        sub.style.opacity = '0';
+                    }
+                    if (list) {
+                        list.style.transition = 'opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
+                        list.style.opacity = '0';
+                    }
                     setTimeout(() => {
-                        sub.innerText = titles[currentPeriod];
-                        list.innerHTML = newHtml;
-                        void list.offsetWidth;
-                        sub.style.opacity = '1';
-                        list.style.opacity = '1';
+                        if (sub) {
+                            sub.innerText = titles[currentPeriod];
+                            sub.style.opacity = '1';
+                        }
+                        if (list) {
+                            list.innerHTML = newHtml;
+                            void list.offsetWidth;
+                            list.style.opacity = '1';
+                        }
                     }, 200);
                 }
             } catch(e) { console.error(e); }
@@ -1154,7 +1181,7 @@
                 document.querySelectorAll('.logging-checkbox-desktop, .logging-checkbox-mobile, #loggingToggle').forEach(el => el.checked = isStealth);
                 document.getElementById('stealthBadge').style.display = isStealth ? 'inline-block' : 'none';
                 document.getElementById('stealthCard').classList.toggle('stealth-on', isStealth);
-                if (isStealth) {
+                if (isStealth && document.getElementById('recentBlocks')) {
                     document.getElementById('recentBlocks').innerHTML = '<li style="color: var(--text-secondary);">Stealth Mode Active. Logs paused.</li>';
                 }
             } catch(e) { console.error(e); }
@@ -1170,7 +1197,7 @@
                 document.querySelectorAll('.logging-checkbox-desktop, .logging-checkbox-mobile, #loggingToggle').forEach(el => el.checked = isStealth);
                 document.getElementById('stealthBadge').style.display = isStealth ? 'inline-block' : 'none';
                 document.getElementById('stealthCard').classList.toggle('stealth-on', isStealth);
-                if (isStealth) {
+                if (isStealth && document.getElementById('recentBlocks')) {
                     document.getElementById('recentBlocks').innerHTML = '<li style="color: var(--text-secondary);">Stealth Mode Active. Logs paused.</li>';
                 } else {
                     fetchStats();

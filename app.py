@@ -448,7 +448,9 @@ def get_user_by_token(token):
 @app.route('/dns-query/<token>', methods=['GET'])
 def doh_get(token):
     user_id = get_user_by_token(token)
-    if not user_id: return "Unauthorized", 401
+    if not user_id: 
+        logger.warning(f"Unauthorized DoH GET from {request.remote_addr} with token: {token}")
+        return "Unauthorized", 401
     
     dns_b64 = request.args.get('dns')
     if not dns_b64: return "Bad Request", 400
@@ -458,13 +460,16 @@ def doh_get(token):
         dns_query = base64.urlsafe_b64decode(dns_b64)
         res = process_dns_query(dns_query, None, None, user_id, True)
         return Response(res, mimetype='application/dns-message')
-    except:
+    except Exception as e:
+        logger.error(f"DoH GET error: {e}")
         return "Bad Request", 400
 
 @app.route('/dns-query/<token>', methods=['POST'])
 def doh_post(token):
     user_id = get_user_by_token(token)
-    if not user_id: return "Unauthorized", 401
+    if not user_id: 
+        logger.warning(f"Unauthorized DoH POST from {request.remote_addr} with token: {token}")
+        return "Unauthorized", 401
     
     if request.headers.get('Content-Type') != 'application/dns-message':
         return "Unsupported Media Type", 415

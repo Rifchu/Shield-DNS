@@ -797,6 +797,7 @@
                     <button class="setup-tab-btn active" onclick="showPlatform('chrome')">Google Chrome</button>
                     <button class="setup-tab-btn" onclick="showPlatform('edge')">Microsoft Edge</button>
                     <button class="setup-tab-btn" onclick="showPlatform('firefox')">Firefox</button>
+                    <button class="setup-tab-btn" onclick="showPlatform('safari')">Safari</button>
                     <button class="setup-tab-btn" onclick="showPlatform('android-ios')">Mobile (Browsers)</button>
                 </div>
 
@@ -865,13 +866,32 @@
                     </div>
                 </div>
 
+                <!-- Safari -->
+                <div id="safari" class="platform-content">
+                    <div class="instruction-step">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>macOS Integration</h4>
+                            <p>On macOS, Safari follows the system DNS settings. To use Shield DNS, you must configure it in <b>System Settings → Network → Wi-Fi/Ethernet → Details → DNS</b>.</p>
+                        </div>
+                    </div>
+                    <div class="instruction-step">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Setup Instructions</h4>
+                            <p>Add the following as a new DNS server in your system settings:</p>
+                            <code class="doh-code" style="margin-top: 10px;">https://{{ request.host }}/dns-query/{{ doh_token }}</code>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Mobile -->
                 <div id="android-ios" class="platform-content">
                     <p>Standard browsers on Mobile support Secure DNS settings just like desktop. Follow the same browser settings steps on your phone!</p>
                     <div class="instruction-step" style="background: var(--btn-bg); padding: 20px; border-radius: 16px; border: 1px dashed var(--card-border); margin-top: 20px;">
                         <div class="step-content">
-                            <h4>💡 System-wide Protection</h4>
-                            <p>For whole-device protection on Android, use the <b>Private DNS</b> system setting. Note: This requires a hostname instead of a URL (contact local admin for details).</p>
+                            <h4>⚠️ System-wide DNS</h4>
+                            <p>Please note that <b>System-wide DNS configuration is not supported currently</b>. For the best experience, please configure the resolver directly within your browser settings.</p>
                         </div>
                     </div>
                 </div>

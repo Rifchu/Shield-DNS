@@ -431,11 +431,20 @@ def process_dns_query(data, addr, sock, user_id=1, is_doh=False):
                     else:
                         is_cname_blocked = False
                         for answer in resp_obj.rr:
-                            if getattr(answer, 'rtype', None) == 1 and str(answer.rdata) in ['0.0.0.0', '185.228.168.10']:
-                                action = "BLOCKED"
-                            elif getattr(answer, 'rtype', None) == 5:
-                                cname_trg = str(answer.rdata).rstrip('.')
-                                if any(bd in cname_trg for bd in user_cache['domains']):
+                            rtype = getattr(answer, 'rtype', None)
+                            rdata_str = str(answer.rdata).rstrip('.').lower()
+                            
+                            if rtype == 1: # A Record
+                                if rdata_str in ['0.0.0.0', '185.228.168.10', '185.228.169.11', '185.228.168.168', '127.0.0.1']:
+                                    action = "BLOCKED"
+                                    break
+                            elif rtype == 28: # AAAA Record
+                                # Normalize IPv6 zero representations
+                                if rdata_str in ['::', '0:0:0:0:0:0:0:0', '::ffff:0.0.0.0']:
+                                    action = "BLOCKED"
+                                    break
+                            elif rtype == 5: # CNAME
+                                if any(bd in rdata_str for bd in blocked_list):
                                     is_cname_blocked = True
                                     action = "BLOCKED"
                                     break

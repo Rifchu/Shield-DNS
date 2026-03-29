@@ -128,9 +128,9 @@ def load_user(user_id):
     return None
 
 DEFAULT_CATEGORIES = {
-    'Ads': ['doubleclick.net', 'adservice.google.com', 'pagead2.googlesyndication.com'],
-    'Adult': ['example-adult.com', 'pornhub.com', 'xvideos.com'],
-    'Malware & Phishing': ['quad9.net', 'malware.wicar.org'],
+    'Ads': ['doubleclick.net', 'adservice.google.com', 'pagead2.googlesyndication.com', 'adsystem.com', 'adnxs.com'],
+    'Adult': ['example-adult.com', 'pornhub.com', 'xvideos.com', 'comix.to', 'hentaihaven.xxx'],
+    'Malware & Phishing': ['quad9.net', 'malware.wicar.org', 'phish-inventory.com'],
     'Cookies & Tracking': ['google-analytics.com', 'googletagmanager.com', 'scorecardresearch.com', 'quantserve.com', 'hotjar.com', 'outbrain.com', 'taboola.com', 'criteo.com'],
     'Meta / Facebook Tracker': ['graph.facebook.com', 'connect.facebook.net', 'pixel.facebook.com'],
     'TikTok / ByteDance Engine': ['byteoversea.com', 'tiktokv.com', 'ibytedtoy.com'],
@@ -149,11 +149,27 @@ def ensure_default_rules():
     for row in users:
         uid = row['id']
         for cat, domains in DEFAULT_CATEGORIES.items():
-            c.execute(f"SELECT 1 FROM rules WHERE user_id = {p_mark} AND category = {p_mark}", (uid, cat))
-            if not fetch_one(c):
-                for dom in domains:
-                    is_active = 0 if cat == 'Adult' else 1
-                    c.execute(f"INSERT INTO rules (user_id, category, domain, is_active) VALUES ({p_mark}, {p_mark}, {p_mark}, {p_mark})", (uid, cat, dom, is_active))
+            # Check if this category exists at all for this user
+            c.execute(f"SELECT 1 FROM rules WHERE user_id = {p_mark} AND category = {p_mark} LIMIT 1", (uid, cat))
+            category_exists = fetch_one(c)
+            
+            # Determine initial active state (categories like Adult are disabled by default)
+            default_active = 0 if cat == 'Adult' else 1
+            
+            for dom in domains:
+                # Check if this specific domain is already in the rules
+                c.execute(f"SELECT 1 FROM rules WHERE user_id = {p_mark} AND category = {p_mark} AND domain = {p_mark}", (uid, cat, dom))
+                if not fetch_one(c):
+                    # If the category already exists for the user, inherit the active state from an existing rule in that category
+                    # This ensures that if a user enabled/disabled a category, new domains added follow suit
+                    active_state = default_active
+                    if category_exists:
+                        c.execute(f"SELECT is_active FROM rules WHERE user_id = {p_mark} AND category = {p_mark} LIMIT 1", (uid, cat))
+                        existing_rule = fetch_one(c)
+                        if existing_rule:
+                            active_state = existing_rule['is_active']
+                            
+                    c.execute(f"INSERT INTO rules (user_id, category, domain, is_active) VALUES ({p_mark}, {p_mark}, {p_mark}, {p_mark})", (uid, cat, dom, active_state))
     conn.commit()
     conn.close()
 
@@ -336,11 +352,18 @@ def log_request_async(domain, action, user_id, qtype=1):
             # 1. Update counters (Deduplicated for accuracy)
             if action == "BLOCKED":
                 # Only increment if we haven't logged this domain as blocked in the last 2 seconds
-                check_sql = f"SELECT 1 FROM logs WHERE user_id = {p_mark} AND domain = {p_mark} AND action = 'BLOCKED' AND \"timestamp\" > (CURRENT_TIMESTAMP - INTERVAL '2 seconds')" if is_postgres else f"SELECT 1 FROM logs WHERE user_id = {p_mark} AND domain = {p_mark} AND action = 'BLOCKED' AND \"timestamp\" > datetime('now', '-2 seconds')"
-                enc_domain_for_check = encrypt_domain(domain, uid)
-                c.execute(check_sql, (uid, enc_domain_for_check))
+                # We decrypt recent logs in Python to handle the non-deterministic encryption
+                time_filter = "INTERVAL '2 seconds'" if is_postgres else "-2 seconds"
+                check_sql = f"SELECT domain FROM logs WHERE user_id = {p_mark} AND action = 'BLOCKED' AND \"timestamp\" > (CURRENT_TIMESTAMP - {time_filter})" if is_postgres else f"SELECT domain FROM logs WHERE user_id = {p_mark} AND action = 'BLOCKED' AND \"timestamp\" > datetime('now', '-2 seconds')"
+                c.execute(check_sql, (uid,))
                 
-                if not fetch_one(c):
+                is_duplicate = False
+                for r in fetch_all(c):
+                    if decrypt_domain(r['domain'], uid) == domain:
+                        is_duplicate = True
+                        break
+                
+                if not is_duplicate:
                     c.execute(f"UPDATE users SET total_blocked = total_blocked + 1 WHERE id = {p_mark}", (uid,))
                     date_func = "CURRENT_DATE" if is_postgres else "date('now', 'localtime')"
                     if is_postgres:
@@ -429,13 +452,18 @@ def process_dns_query(data, addr, sock, user_id=1, is_doh=False):
                 with urllib.request.urlopen(req, timeout=3) as response:
                     real_dns_response = response.read()
                 
+                # Check for blocking indicators regardless of the narrow is_adult/is_malware flags
+                # If ANY category is active, we treat NXDOMAIN and block IPs as a block for logging purposes
+                c.execute(f"SELECT COUNT(*) as count FROM rules WHERE user_id = {p_mark} AND is_active = 1 AND category != 'Specific Website'", (user_id,))
+                active_cat_count = fetch_one(c)['count']
+                
                 action = "ALLOWED"
                 try:
                     resp_obj = DNSRecord.parse(real_dns_response)
-                    # Treat NXDOMAIN (3), SERVFAIL (2), or REFUSED (5) as a block if filter is active
-                    if resp_obj.header.rcode in [2, 3, 5] and (is_adult or is_malware):
+                    # Treat NXDOMAIN (3), SERVFAIL (2), or REFUSED (5) as a block if ANY category filter is active
+                    if resp_obj.header.rcode in [2, 3, 5] and active_cat_count > 0:
                         action = "BLOCKED"
-                    elif resp_obj.header.rcode == 3: # Always block NXDOMAIN if it's supposed to be missing
+                    elif resp_obj.header.rcode == 3: # Always log NXDOMAIN as it might be a block from upstream
                         action = "BLOCKED"
                     else:
                         is_cname_blocked = False
@@ -444,11 +472,11 @@ def process_dns_query(data, addr, sock, user_id=1, is_doh=False):
                             rdata_str = str(answer.rdata).rstrip('.').lower()
                             
                             if rtype == 1: # A Record
-                                if rdata_str in ['0.0.0.0', '185.228.168.10', '185.228.169.11', '185.228.168.168', '127.0.0.1']:
+                                # Catch common block IPs from CleanBrowsing, Quad9, etc.
+                                if rdata_str in ['0.0.0.0', '185.228.168.10', '185.228.169.11', '185.228.168.168', '127.0.0.1', '::', '::1']:
                                     action = "BLOCKED"
                                     break
                             elif rtype == 28: # AAAA Record
-                                # Normalize IPv6 zero representations
                                 if rdata_str in ['::', '0:0:0:0:0:0:0:0', '::ffff:0.0.0.0']:
                                     action = "BLOCKED"
                                     break
@@ -465,7 +493,7 @@ def process_dns_query(data, addr, sock, user_id=1, is_doh=False):
                             if not is_doh: sock.sendto(res_packed, addr)
                             return res_packed
                 except Exception as e:
-                    logger.debug(f"CNAME parse error for {qname}: {e}")
+                    logger.debug(f"Response parse error for {qname}: {e}")
                     
                 log_request_async(qname, action, user_id, request_data.q.qtype)
                 if not is_doh: sock.sendto(real_dns_response, addr)

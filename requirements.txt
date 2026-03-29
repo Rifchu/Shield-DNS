@@ -3,3 +3,4 @@ dnslib
 flask-login
 werkzeug
 waitress
+psycopg2-binary

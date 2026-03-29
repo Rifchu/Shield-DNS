@@ -13,6 +13,13 @@ from waitress import serve
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    HAS_POSTGRES = True
+except ImportError:
+    HAS_POSTGRES = False
+
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 logger = logging.getLogger('shield-dns')
 
@@ -51,6 +58,31 @@ app.secret_key = load_or_create_secret_key()
 # Domain validation regex
 DOMAIN_RE = re.compile(r'^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$')
 
+def get_db_connection():
+    postgres_url = os.environ.get('POSTGRES_URL')
+    if postgres_url and HAS_POSTGRES:
+        conn = psycopg2.connect(postgres_url)
+        return conn
+    else:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+def get_cursor(conn):
+    if hasattr(conn, 'cursor_factory'): # Postgres
+        return conn.cursor(cursor_factory=RealDictCursor)
+    return conn.cursor()
+
+def fetch_one(cursor):
+    row = cursor.fetchone()
+    if row and not isinstance(row, dict) and hasattr(row, 'keys'):
+        return dict(row)
+    return row
+
+def fetch_all(cursor):
+    rows = cursor.fetchall()
+    return [dict(r) if not isinstance(r, dict) and hasattr(r, 'keys') else r for r in rows]
+
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
@@ -63,13 +95,13 @@ class User(UserMixin):
 
 @login_manager.user_loader
 def load_user(user_id):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT id, username, doh_token FROM users WHERE id = ?", (user_id,))
-    row = c.fetchone()
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    c.execute("SELECT id, username, doh_token FROM users WHERE id = %s" if 'POSTGRES_URL' in os.environ else "SELECT id, username, doh_token FROM users WHERE id = ?", (int(user_id),))
+    row = fetch_one(c)
     conn.close()
     if row:
-        return User(row[0], row[1], row[2])
+        return User(row['id'], row['username'], row['doh_token'])
     return None
 
 DEFAULT_CATEGORIES = {
@@ -102,52 +134,53 @@ def ensure_default_rules():
 rules_cache = {}
 
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    is_postgres = 'POSTGRES_URL' in os.environ
     
-    # Check if this is the first migration to Multi-User by checking if 'users' table exists
-    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
-    if not c.fetchone():
-        c.execute("DROP TABLE IF EXISTS logs")
-        c.execute("DROP TABLE IF EXISTS rules")
-        
-    c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (id INTEGER PRIMARY KEY, username TEXT UNIQUE, password_hash TEXT, doh_token TEXT UNIQUE)''')
+    # Table creation with cross-DB compatibility
+    id_type = "SERIAL PRIMARY KEY" if is_postgres else "INTEGER PRIMARY KEY"
+    p_mark = "%s" if is_postgres else "?"
+    
+    c.execute(f'''CREATE TABLE IF NOT EXISTS users
+                 (id {id_type}, username TEXT UNIQUE, password_hash TEXT, doh_token TEXT UNIQUE)''')
                  
     try:
         c.execute("ALTER TABLE users ADD COLUMN logging_enabled INTEGER DEFAULT 1")
-    except sqlite3.OperationalError:
+    except (sqlite3.OperationalError, Exception):
         pass
         
     try:
         c.execute("ALTER TABLE users ADD COLUMN total_blocked INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
+    except (sqlite3.OperationalError, Exception):
         pass
                  
-    c.execute('''CREATE TABLE IF NOT EXISTS logs
-                 (id INTEGER PRIMARY KEY, user_id INTEGER, domain TEXT, action TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+    c.execute(f'''CREATE TABLE IF NOT EXISTS logs
+                 (id {id_type}, user_id INTEGER, domain TEXT, action TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
                  
-    c.execute('''CREATE TABLE IF NOT EXISTS rules
-                 (id INTEGER PRIMARY KEY, user_id INTEGER, category TEXT, domain TEXT, is_active INTEGER)''')
+    c.execute(f'''CREATE TABLE IF NOT EXISTS rules
+                 (id {id_type}, user_id INTEGER, category TEXT, domain TEXT, is_active INTEGER)''')
     
-    # Privacy-safe daily blocked aggregate (no domain info — works in stealth mode)
-    c.execute('''CREATE TABLE IF NOT EXISTS blocked_daily
-                 (id INTEGER PRIMARY KEY, user_id INTEGER, day TEXT, count INTEGER DEFAULT 0,
+    c.execute(f'''CREATE TABLE IF NOT EXISTS blocked_daily
+                 (id {id_type}, user_id INTEGER, day TEXT, count INTEGER DEFAULT 0,
                   UNIQUE(user_id, day))''')
     
-    # DB indexes for query performance
-    c.execute("CREATE INDEX IF NOT EXISTS idx_logs_user_action ON logs(user_id, action, timestamp)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_rules_user ON rules(user_id, category)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_blocked_daily ON blocked_daily(user_id, day)")
+    # DB indexes
+    if not is_postgres:
+        c.execute("CREATE INDEX IF NOT EXISTS idx_logs_user_action ON logs(user_id, action, timestamp)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_rules_user ON rules(user_id, category)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_blocked_daily ON blocked_daily(user_id, day)")
 
-    # One-time sync: Initialize the counter from historical logs for existing users if it is empty
-    c.execute("UPDATE users SET total_blocked = (SELECT COUNT(*) FROM logs WHERE logs.user_id = users.id AND logs.action = 'BLOCKED') WHERE total_blocked = 0")
+    # Legacy cleanup
+    if not is_postgres:
+        c.execute("UPDATE users SET total_blocked = (SELECT COUNT(*) FROM logs WHERE logs.user_id = users.id AND logs.action = 'BLOCKED') WHERE total_blocked = 0")
     
     c.execute("SELECT count(*) FROM users")
-    if c.fetchone()[0] == 0:
+    count = c.fetchone()
+    if (count[0] if isinstance(count, tuple) else count['count'] if 'count' in count else list(count.values())[0]) == 0:
         token = secrets.token_urlsafe(8)
-        pw_hash = generate_password_hash("admin") # Default password is admin
-        c.execute("INSERT INTO users (username, password_hash, doh_token) VALUES (?, ?, ?)", ("admin", pw_hash, token))
+        pw_hash = generate_password_hash("admin")
+        c.execute(f"INSERT INTO users (username, password_hash, doh_token) VALUES ({p_mark}, {p_mark}, {p_mark})", ("admin", pw_hash, token))
         conn.commit()
         
     conn.close()
@@ -156,24 +189,30 @@ def init_db():
 
 def reload_rules_cache():
     global rules_cache
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    is_postgres = 'POSTGRES_URL' in os.environ
+    p_mark = "%s" if is_postgres else "?"
+    
     c.execute("SELECT id FROM users")
-    users = c.fetchall()
+    users = fetch_all(c)
     
     new_cache = {}
-    for (uid,) in users:
+    for user_row in users:
+        uid = user_row['id']
         new_cache[uid] = {'categories': {}, 'domains': set(), 'logging_enabled': True}
         
-        c.execute("SELECT logging_enabled FROM users WHERE id = ?", (uid,))
-        logging_row = c.fetchone()
-        if logging_row: new_cache[uid]['logging_enabled'] = bool(logging_row[0])
+        c.execute(f"SELECT logging_enabled FROM users WHERE id = {p_mark}", (uid,))
+        logging_row = fetch_one(c)
+        if logging_row: new_cache[uid]['logging_enabled'] = bool(logging_row['logging_enabled'])
         
-        c.execute("SELECT category, MAX(is_active) FROM rules WHERE user_id = ? AND category != 'Specific Website' GROUP BY category", (uid,))
-        new_cache[uid]['categories'] = {row[0]: bool(row[1]) for row in c.fetchall()}
+        # Postgres requires explicit column names in GROUP BY or aggregation
+        c.execute(f"SELECT category, MAX(is_active) as max_active FROM rules WHERE user_id = {p_mark} AND category != 'Specific Website' GROUP BY category", (uid,))
+        for row in fetch_all(c):
+            new_cache[uid]['categories'][row['category']] = bool(row['max_active'])
         
-        c.execute("SELECT domain FROM rules WHERE user_id = ? AND is_active = 1", (uid,))
-        new_cache[uid]['domains'] = {row[0] for row in c.fetchall()}
+        c.execute(f"SELECT domain FROM rules WHERE user_id = {p_mark} AND is_active = 1", (uid,))
+        new_cache[uid]['domains'] = {row['domain'] for row in fetch_all(c)}
         
     rules_cache = new_cache
     conn.close()
@@ -210,11 +249,20 @@ def log_request_async(domain, action, user_id):
         def _increment():
             conn = None
             try:
-                conn = sqlite3.connect(DB_FILE, timeout=5)
-                c = conn.cursor()
-                c.execute("UPDATE users SET total_blocked = total_blocked + 1 WHERE id = ?", (user_id,))
-                # Also update daily aggregate (privacy-safe — no domain info)
-                c.execute("INSERT INTO blocked_daily (user_id, day, count) VALUES (?, date('now', 'localtime'), 1) ON CONFLICT(user_id, day) DO UPDATE SET count = count + 1", (user_id,))
+                conn = get_db_connection()
+                c = get_cursor(conn)
+                is_postgres = 'POSTGRES_URL' in os.environ
+                p_mark = "%s" if is_postgres else "?"
+                
+                c.execute(f"UPDATE users SET total_blocked = total_blocked + 1 WHERE id = {p_mark}", (user_id,))
+                # Date function compatibility
+                date_func = "CURRENT_DATE" if is_postgres else "date('now', 'localtime')"
+                
+                if is_postgres:
+                    c.execute(f"INSERT INTO blocked_daily (user_id, day, count) VALUES (%s, {date_func}, 1) ON CONFLICT(user_id, day) DO UPDATE SET count = blocked_daily.count + 1", (user_id,))
+                else:
+                    c.execute(f"INSERT INTO blocked_daily (user_id, day, count) VALUES (?, {date_func}, 1) ON CONFLICT(user_id, day) DO UPDATE SET count = count + 1", (user_id,))
+                
                 conn.commit()
             except Exception as e:
                 logger.warning(f"Failed to increment blocked count: {e}")
@@ -229,9 +277,11 @@ def log_request_async(domain, action, user_id):
     def _log():
         conn = None
         try:
-            conn = sqlite3.connect(DB_FILE, timeout=5)
-            c = conn.cursor()
-            c.execute("INSERT INTO logs (user_id, domain, action) VALUES (?, ?, ?)", (user_id, domain, action))
+            conn = get_db_connection()
+            c = get_cursor(conn)
+            is_postgres = 'POSTGRES_URL' in os.environ
+            p_mark = "%s" if is_postgres else "?"
+            c.execute(f"INSERT INTO logs (user_id, domain, action) VALUES ({p_mark}, {p_mark}, {p_mark})", (user_id, domain, action))
             conn.commit()
         except Exception as e:
             logger.warning(f"Failed to write log entry: {e}")
@@ -329,12 +379,14 @@ else:
 # --- DNS over HTTPS Endpoints ---
 
 def get_user_by_token(token):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT id FROM users WHERE doh_token = ?", (token,))
-    row = c.fetchone()
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    is_postgres = 'POSTGRES_URL' in os.environ
+    p_mark = "%s" if is_postgres else "?"
+    c.execute(f"SELECT id FROM users WHERE doh_token = {p_mark}", (token,))
+    row = fetch_one(c)
     conn.close()
-    return row[0] if row else None
+    return row['id'] if row else None
 
 @app.route('/dns-query/<token>', methods=['GET'])
 def doh_get(token):
@@ -370,14 +422,16 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute("SELECT id, username, doh_token, password_hash FROM users WHERE username = ?", (username,))
-        row = c.fetchone()
+        conn = get_db_connection()
+        c = get_cursor(conn)
+        is_postgres = 'POSTGRES_URL' in os.environ
+        p_mark = "%s" if is_postgres else "?"
+        c.execute(f"SELECT id, username, doh_token, password_hash FROM users WHERE username = {p_mark}", (username,))
+        row = fetch_one(c)
         conn.close()
         
-        if row and check_password_hash(row[3], password):
-            user = User(row[0], row[1], row[2])
+        if row and check_password_hash(row['password_hash'], password):
+            user = User(row['id'], row['username'], row['doh_token'])
             login_user(user)
             return redirect(url_for('index'))
         else:
@@ -390,10 +444,13 @@ def register():
         username = request.form.get('username')
         password = request.form.get('password')
         
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute("SELECT id FROM users WHERE username = ?", (username,))
-        if c.fetchone():
+        conn = get_db_connection()
+        c = get_cursor(conn)
+        is_postgres = 'POSTGRES_URL' in os.environ
+        p_mark = "%s" if is_postgres else "?"
+        
+        c.execute(f"SELECT id FROM users WHERE username = {p_mark}", (username,))
+        if fetch_one(c):
             conn.close()
             return render_template('register.html', error="Username is already taken.")
             
@@ -401,15 +458,20 @@ def register():
         pw_hash = generate_password_hash(password)
         
         try:
-            c.execute("INSERT INTO users (username, password_hash, doh_token) VALUES (?, ?, ?)", (username, pw_hash, token))
+            c.execute(f"INSERT INTO users (username, password_hash, doh_token) VALUES ({p_mark}, {p_mark}, {p_mark})", (username, pw_hash, token))
             conn.commit()
             
-            user_id = c.lastrowid
+            # Need to get user_id correctly for both
+            if is_postgres:
+                c.execute("SELECT id FROM users WHERE username = %s", (username,))
+                user_id = fetch_one(c)['id']
+            else:
+                user_id = c.lastrowid
             
             for cat, domains in DEFAULT_CATEGORIES.items():
                 for dom in domains:
                     is_active = 0 if cat == 'Adult' else 1
-                    c.execute("INSERT INTO rules (user_id, category, domain, is_active) VALUES (?, ?, ?, ?)", (user_id, cat, dom, is_active))
+                    c.execute(f"INSERT INTO rules (user_id, category, domain, is_active) VALUES ({p_mark}, {p_mark}, {p_mark}, {p_mark})", (user_id, cat, dom, is_active))
             conn.commit()
             
             user = User(user_id, username, token)
@@ -419,6 +481,7 @@ def register():
             reload_rules_cache()
             return redirect(url_for('index'))
         except Exception as e:
+            logger.error(f"Registration error: {e}")
             conn.close()
             return render_template('register.html', error="An error occurred creating your account.")
             
@@ -440,10 +503,10 @@ def index():
 @login_required
 def admin_get_users():
     if current_user.id != 1: return "Forbidden", 403
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
+    conn = get_db_connection()
+    c = get_cursor(conn)
     c.execute("SELECT id, username, doh_token FROM users")
-    users = [{"id": r[0], "username": r[1], "doh_token": r[2]} for r in c.fetchall()]
+    users = fetch_all(c)
     conn.close()
     return jsonify(users)
 
@@ -451,11 +514,13 @@ def admin_get_users():
 @login_required
 def admin_delete_user(uid):
     if current_user.id != 1 or uid == 1: return "Forbidden", 403
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("DELETE FROM users WHERE id=?", (uid,))
-    c.execute("DELETE FROM rules WHERE user_id=?", (uid,))
-    c.execute("DELETE FROM logs WHERE user_id=?", (uid,))
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    is_postgres = 'POSTGRES_URL' in os.environ
+    p_mark = "%s" if is_postgres else "?"
+    c.execute(f"DELETE FROM users WHERE id={p_mark}", (uid,))
+    c.execute(f"DELETE FROM rules WHERE user_id={p_mark}", (uid,))
+    c.execute(f"DELETE FROM logs WHERE user_id={p_mark}", (uid,))
     conn.commit()
     conn.close()
     reload_rules_cache()
@@ -465,45 +530,78 @@ def admin_delete_user(uid):
 @login_required
 def get_stats():
     period = request.args.get('period', 'all')
-    time_filter = ""
     uid = current_user.id
     
-    if period == 'today': time_filter = "AND date(timestamp, 'localtime') = date('now', 'localtime')"
-    elif period == 'yesterday': time_filter = "AND date(timestamp, 'localtime') = date('now', 'localtime', '-1 day')"
-    elif period == '7days': time_filter = "AND date(timestamp, 'localtime') >= date('now', 'localtime', '-7 days')"
-    elif period == 'this_month': time_filter = "AND strftime('%Y-%m', timestamp, 'localtime') = strftime('%Y-%m', 'now', 'localtime')"
-    elif period == 'last_month': time_filter = "AND strftime('%Y-%m', timestamp, 'localtime') = strftime('%Y-%m', 'now', 'localtime', '-1 month')"
-        
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    is_postgres = 'POSTGRES_URL' in os.environ
+    p_mark = "%s" if is_postgres else "?"
+    
+    # Check stealth mode
+    c.execute(f"SELECT logging_enabled FROM users WHERE id = {p_mark}", (uid,))
+    stealth_row = fetch_one(c)
+    is_stealth = stealth_row and not stealth_row['logging_enabled']
 
-    # Check stealth mode — never return logs if disabled
-    c.execute("SELECT logging_enabled FROM users WHERE id = ?", (uid,))
-    stealth_row = c.fetchone()
-    is_stealth = stealth_row and not stealth_row[0]
+    # Date filters
+    if is_postgres:
+        time_filters = {
+            'today': "AND timestamp::date = CURRENT_DATE",
+            'yesterday': "AND timestamp::date = CURRENT_DATE - INTERVAL '1 day'",
+            '7days': "AND timestamp::date >= CURRENT_DATE - INTERVAL '7 days'",
+            'this_month': "AND to_char(timestamp, 'YYYY-MM') = to_char(CURRENT_DATE, 'YYYY-MM')",
+            'last_month': "AND to_char(timestamp, 'YYYY-MM') = to_char(CURRENT_DATE - INTERVAL '1 month', 'YYYY-MM')"
+        }
+    else:
+        time_filters = {
+            'today': "AND date(timestamp, 'localtime') = date('now', 'localtime')",
+            'yesterday': "AND date(timestamp, 'localtime') = date('now', 'localtime', '-1 day')",
+            '7days': "AND date(timestamp, 'localtime') >= date('now', 'localtime', '-7 days')",
+            'this_month': "AND strftime('%Y-%m', timestamp, 'localtime') = strftime('%Y-%m', 'now', 'localtime')",
+            'last_month': "AND strftime('%Y-%m', timestamp, 'localtime') = strftime('%Y-%m', 'now', 'localtime', '-1 month')"
+        }
+    
+    time_filter = time_filters.get(period, "")
 
     if period == 'all':
-        c.execute("SELECT total_blocked FROM users WHERE id = ?", (uid,))
-        total = c.fetchone()[0]
+        c.execute(f"SELECT total_blocked FROM users WHERE id = {p_mark}", (uid,))
+        total_row = fetch_one(c)
+        total = total_row['total_blocked'] if total_row else 0
     elif is_stealth:
-        # Stealth mode: use privacy-safe daily aggregates instead of logs
         day_filter = ""
-        if period == 'today': day_filter = "AND day = date('now', 'localtime')"
-        elif period == 'yesterday': day_filter = "AND day = date('now', 'localtime', '-1 day')"
-        elif period == '7days': day_filter = "AND day >= date('now', 'localtime', '-7 days')"
-        elif period == 'this_month': day_filter = "AND strftime('%Y-%m', day) = strftime('%Y-%m', 'now', 'localtime')"
-        elif period == 'last_month': day_filter = "AND strftime('%Y-%m', day) = strftime('%Y-%m', 'now', 'localtime', '-1 month')"
-        c.execute(f"SELECT COALESCE(SUM(count), 0) FROM blocked_daily WHERE user_id=? {day_filter}", (uid,))
-        total = c.fetchone()[0]
+        if is_postgres:
+            filters = {
+                'today': "AND day = CURRENT_DATE::text",
+                'yesterday': "AND day = (CURRENT_DATE - INTERVAL '1 day')::text",
+                '7days': "AND day::date >= CURRENT_DATE - INTERVAL '7 days'",
+                'this_month': "AND left(day, 7) = to_char(CURRENT_DATE, 'YYYY-MM')",
+                'last_month': "AND left(day, 7) = to_char(CURRENT_DATE - INTERVAL '1 month', 'YYYY-MM')"
+            }
+        else:
+            filters = {
+                'today': "AND day = date('now', 'localtime')",
+                'yesterday': "AND day = date('now', 'localtime', '-1 day')",
+                '7days': "AND day >= date('now', 'localtime', '-7 days')",
+                'this_month': "AND strftime('%Y-%m', day) = strftime('%Y-%m', 'now', 'localtime')",
+                'last_month': "AND strftime('%Y-%m', day) = strftime('%Y-%m', 'now', 'localtime', '-1 month')"
+            }
+        day_filter = filters.get(period, "")
+        c.execute(f"SELECT COALESCE(SUM(count), 0) as total FROM blocked_daily WHERE user_id={p_mark} {day_filter}", (uid,))
+        total_row = fetch_one(c)
+        total = total_row['total'] if total_row else 0
     else:
-        c.execute(f"SELECT count(*) FROM logs WHERE action='BLOCKED' AND user_id=? {time_filter}", (uid,))
-        total = c.fetchone()[0]
+        c.execute(f"SELECT count(*) as total FROM logs WHERE action='BLOCKED' AND user_id={p_mark} {time_filter}", (uid,))
+        total_row = fetch_one(c)
+        total = total_row['total'] if total_row else 0
 
     if is_stealth:
         recent = []
     else:
-        c.execute(f"SELECT domain, MAX(timestamp) FROM logs WHERE action='BLOCKED' AND user_id=? {time_filter} GROUP BY domain ORDER BY MAX(timestamp) DESC LIMIT 15", (uid,))
-        recent = [{"domain": r[0], "time": r[1]} for r in c.fetchall()]
+        # Complex GROUP BY for Postgres
+        if is_postgres:
+            c.execute(f"SELECT domain, MAX(timestamp) as time FROM logs WHERE action='BLOCKED' AND user_id=%s {time_filter} GROUP BY domain ORDER BY time DESC LIMIT 15", (uid,))
+        else:
+            c.execute(f"SELECT domain, MAX(timestamp) as time FROM logs WHERE action='BLOCKED' AND user_id=? {time_filter} GROUP BY domain ORDER BY time DESC LIMIT 15", (uid,))
+        recent = [{"domain": r['domain'], "time": str(r['time'])} for r in fetch_all(c)]
 
     conn.close()
     return jsonify({"total_blocked": total, "recent_blocks": recent, "stealth": is_stealth})
@@ -512,15 +610,18 @@ def get_stats():
 @login_required
 def get_activity():
     uid = current_user.id
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT logging_enabled FROM users WHERE id = ?", (uid,))
-    logging_row = c.fetchone()
-    if logging_row and not logging_row[0]:
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    is_postgres = 'POSTGRES_URL' in os.environ
+    p_mark = "%s" if is_postgres else "?"
+    
+    c.execute(f"SELECT logging_enabled FROM users WHERE id = {p_mark}", (uid,))
+    logging_row = fetch_one(c)
+    if logging_row and not logging_row['logging_enabled']:
         conn.close()
         return jsonify([])
-    c.execute("SELECT domain, action, timestamp FROM logs WHERE user_id=? ORDER BY timestamp DESC LIMIT 200", (uid,))
-    acts = [{"domain": r[0], "action": r[1], "time": r[2]} for r in c.fetchall()]
+    c.execute(f"SELECT domain, action, timestamp FROM logs WHERE user_id={p_mark} ORDER BY timestamp DESC LIMIT 200", (uid,))
+    acts = [{"domain": r['domain'], "action": r['action'], "time": str(r['timestamp'])} for r in fetch_all(c)]
     conn.close()
     return jsonify(acts)
 
@@ -528,31 +629,36 @@ def get_activity():
 @login_required
 def get_rules():
     uid = current_user.id
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT domain, is_active FROM rules WHERE category = 'Specific Website' AND user_id=?", (uid,))
-    custom = [{"domain": r[0], "is_active": bool(r[1])} for r in c.fetchall()]
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    is_postgres = 'POSTGRES_URL' in os.environ
+    p_mark = "%s" if is_postgres else "?"
     
-    c.execute("SELECT category, domain FROM rules WHERE category != 'Specific Website' AND user_id=?", (uid,))
+    c.execute(f"SELECT domain, is_active FROM rules WHERE category = 'Specific Website' AND user_id={p_mark}", (uid,))
+    custom = [{"domain": r['domain'], "is_active": bool(r['is_active'])} for r in fetch_all(c)]
+    
+    c.execute(f"SELECT category, domain FROM rules WHERE category != 'Specific Website' AND user_id={p_mark}", (uid,))
     cat_domains = {}
-    for row in c.fetchall():
-        cat_domains.setdefault(row[0], []).append(row[1])
+    for row in fetch_all(c):
+        cat_domains.setdefault(row['category'], []).append(row['domain'])
     conn.close()
-
+ 
     cat_list = []
     user_cache = rules_cache.get(uid, {'categories': {}})
     for k, v in user_cache['categories'].items():
         cat_list.append({"category": k, "is_active": v, "domains": cat_domains.get(k, [])})
-
+ 
     return jsonify({"categories": cat_list, "custom_domains": custom})
 
 @app.route('/api/rules/category', methods=['POST'])
 @login_required
 def manage_category_rule():
     data = request.json
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("UPDATE rules SET is_active = ? WHERE category = ? AND user_id=?", (data['is_active'], data['category'], current_user.id))
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    is_postgres = 'POSTGRES_URL' in os.environ
+    p_mark = "%s" if is_postgres else "?"
+    c.execute(f"UPDATE rules SET is_active = {p_mark} WHERE category = {p_mark} AND user_id={p_mark}", (int(data['is_active']), data['category'], current_user.id))
     conn.commit()
     conn.close()
     reload_rules_cache()
@@ -565,14 +671,17 @@ def add_domain_rule():
     if not domain or not DOMAIN_RE.match(domain):
         return jsonify({"status": "error", "message": "Invalid domain format"}), 400
         
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    is_postgres = 'POSTGRES_URL' in os.environ
+    p_mark = "%s" if is_postgres else "?"
     uid = current_user.id
-    c.execute("SELECT id FROM rules WHERE domain = ? AND category = 'Specific Website' AND user_id=?", (domain, uid))
-    if c.fetchone():
-        c.execute("UPDATE rules SET is_active = 1 WHERE domain = ? AND category = 'Specific Website' AND user_id=?", (domain, uid))
+    
+    c.execute(f"SELECT id FROM rules WHERE domain = {p_mark} AND category = 'Specific Website' AND user_id={p_mark}", (domain, uid))
+    if fetch_one(c):
+        c.execute(f"UPDATE rules SET is_active = 1 WHERE domain = {p_mark} AND category = 'Specific Website' AND user_id={p_mark}", (domain, uid))
     else:
-        c.execute("INSERT INTO rules (user_id, category, domain, is_active) VALUES (?, 'Specific Website', ?, 1)", (uid, domain))
+        c.execute(f"INSERT INTO rules (user_id, category, domain, is_active) VALUES ({p_mark}, 'Specific Website', {p_mark}, 1)", (uid, domain))
     conn.commit()
     conn.close()
     reload_rules_cache()
@@ -583,9 +692,11 @@ def add_domain_rule():
 def delete_domain_rule():
     domain = request.json.get('domain', '').strip().lower()
     if not domain: return jsonify({"status": "error"}), 400
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("DELETE FROM rules WHERE domain = ? AND category = 'Specific Website' AND user_id=?", (domain, current_user.id))
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    is_postgres = 'POSTGRES_URL' in os.environ
+    p_mark = "%s" if is_postgres else "?"
+    c.execute(f"DELETE FROM rules WHERE domain = {p_mark} AND category = 'Specific Website' AND user_id={p_mark}", (domain.strip(), current_user.id))
     conn.commit()
     conn.close()
     reload_rules_cache()
@@ -595,9 +706,11 @@ def delete_domain_rule():
 @login_required
 def toggle_domain_rule():
     data = request.json
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("UPDATE rules SET is_active = ? WHERE domain = ? AND category = 'Specific Website' AND user_id=?", (data['is_active'], data['domain'].strip(), current_user.id))
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    is_postgres = 'POSTGRES_URL' in os.environ
+    p_mark = "%s" if is_postgres else "?"
+    c.execute(f"UPDATE rules SET is_active = {p_mark} WHERE domain = {p_mark} AND category = 'Specific Website' AND user_id={p_mark}", (int(data['is_active']), data['domain'].strip(), current_user.id))
     conn.commit()
     conn.close()
     reload_rules_cache()
@@ -607,20 +720,23 @@ def toggle_domain_rule():
 @login_required
 def manage_logging():
     uid = current_user.id
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    is_postgres = 'POSTGRES_URL' in os.environ
+    p_mark = "%s" if is_postgres else "?"
+    
     if request.method == 'POST':
         enabled = 1 if request.json.get('enabled') else 0
-        c.execute("UPDATE users SET logging_enabled = ? WHERE id = ?", (enabled, uid))
+        c.execute(f"UPDATE users SET logging_enabled = {p_mark} WHERE id = {p_mark}", (enabled, uid))
         conn.commit()
         conn.close()
         reload_rules_cache()
         return jsonify({"status": "success"})
     else:
-        c.execute("SELECT logging_enabled FROM users WHERE id = ?", (uid,))
-        row = c.fetchone()
+        c.execute(f"SELECT logging_enabled FROM users WHERE id = {p_mark}", (uid,))
+        row = fetch_one(c)
         conn.close()
-        return jsonify({"enabled": bool(row[0]) if row else True})
+        return jsonify({"enabled": bool(row['logging_enabled']) if row else True})
 
 if __name__ == '__main__':
     print("\n================================================")

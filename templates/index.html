@@ -731,6 +731,24 @@
                         </label>
                     </div>
                 </div>
+
+                <div class="card reveal" style="margin-top: 30px; text-align: left;">
+                    <h2 style="font-size: 20px; margin-bottom: 20px;">🔒 Security & Account</h2>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px;">
+                        <div>
+                            <label style="display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">Current Password</label>
+                            <input type="password" id="currentPassword" class="glass-input" placeholder="••••••••" style="width: 100%; box-sizing: border-box;">
+                        </div>
+                        <div>
+                            <label style="display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">New Password</label>
+                            <input type="password" id="newPassword" class="glass-input" placeholder="••••••••" style="width: 100%; box-sizing: border-box;">
+                        </div>
+                    </div>
+                    <div style="margin-top: 20px;">
+                        <button id="updatePwBtn" onclick="changePassword()" class="filter-btn" style="background: var(--accent); color: var(--bg-grad-1); border: 1px solid var(--accent); padding: 10px 24px;">Update Password</button>
+                        <span id="pwStatus" style="font-size: 13px; margin-left: 15px;"></span>
+                    </div>
+                </div>
                 
                 <div class="time-filters">
                     <button class="filter-btn active" onclick="setPeriod('all', this)">All Time</button>
@@ -1453,6 +1471,48 @@
             } catch (e) {
                 console.error(e);
                 alert('An error occurred during reset.');
+            }
+        }
+
+        async function changePassword() {
+            const oldPw = document.getElementById('currentPassword').value;
+            const newPw = document.getElementById('newPassword').value;
+            const btn = document.getElementById('updatePwBtn');
+            const status = document.getElementById('pwStatus');
+            
+            if (!oldPw || !newPw) {
+                status.innerText = '❌ Fill all fields.';
+                status.style.color = '#f87171';
+                return;
+            }
+            
+            btn.disabled = true;
+            status.innerText = 'Updating...';
+            status.style.color = 'var(--text-secondary)';
+            
+            try {
+                const res = await fetch('/api/user/password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ old_password: oldPw, new_password: newPw })
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    status.innerText = '✅ Success!';
+                    status.style.color = '#4ade80';
+                    document.getElementById('currentPassword').value = '';
+                    document.getElementById('newPassword').value = '';
+                    setTimeout(() => status.innerText = '', 3000);
+                } else {
+                    status.innerText = '❌ ' + (data.message || 'Error');
+                    status.style.color = '#f87171';
+                }
+            } catch (e) {
+                console.error(e);
+                status.innerText = '❌ Connection error.';
+                status.style.color = '#f87171';
+            } finally {
+                btn.disabled = false;
             }
         }
 

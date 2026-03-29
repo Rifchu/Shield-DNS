@@ -333,8 +333,8 @@ def log_request_async(domain, action, user_id, qtype=1):
             is_postgres = 'POSTGRES_URL' in os.environ
             p_mark = "%s" if is_postgres else "?"
             
-            # 1. Update counters (Only for A records to avoid double counting A/AAAA)
-            if action == "BLOCKED" and qt == 1:
+            # 1. Update counters
+            if action == "BLOCKED":
                 c.execute(f"UPDATE users SET total_blocked = total_blocked + 1 WHERE id = {p_mark}", (uid,))
                 date_func = "CURRENT_DATE" if is_postgres else "date('now', 'localtime')"
                 if is_postgres:
@@ -342,10 +342,10 @@ def log_request_async(domain, action, user_id, qtype=1):
                 else:
                     c.execute(f"INSERT INTO blocked_daily (user_id, day, count) VALUES (?, {date_func}, 1) ON CONFLICT(user_id, day) DO UPDATE SET count = count + 1", (uid,))
             
-            # 2. Write log entry (if enabled - only write for blocked A-records to avoid A/AAAA duplication)
+            # 2. Write log entry (if enabled)
             c.execute(f"SELECT logging_enabled FROM users WHERE id = {p_mark}", (uid,))
             logging_row = fetch_one(c)
-            if logging_row and logging_row['logging_enabled'] and action == "BLOCKED" and qt == 1:
+            if logging_row and logging_row['logging_enabled'] and action == "BLOCKED":
                 enc_domain = encrypt_domain(domain, uid)
                 c.execute(f'INSERT INTO logs (user_id, domain, action) VALUES ({p_mark}, {p_mark}, {p_mark})', (uid, enc_domain, action))
             
@@ -605,6 +605,35 @@ def register():
 def logout():
     logout_user()
     return redirect(url_for('login'))
+
+@app.route('/api/user/password', methods=['POST'])
+@login_required
+def update_password():
+    data = request.json
+    old_pw = data.get('old_password')
+    new_pw = data.get('new_password')
+    
+    if not new_pw or len(new_pw) < 6:
+        return jsonify({"status": "error", "message": "Password must be at least 6 characters."}), 400
+        
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    is_postgres = 'POSTGRES_URL' in os.environ
+    p_mark = "%s" if is_postgres else "?"
+    
+    c.execute(f"SELECT password_hash FROM users WHERE id = {p_mark}", (current_user.id,))
+    row = fetch_one(c)
+    
+    if not row or not check_password_hash(row['password_hash'], old_pw):
+        conn.close()
+        return jsonify({"status": "error", "message": "Incorrect current password."}), 400
+        
+    new_hash = generate_password_hash(new_pw)
+    c.execute(f"UPDATE users SET password_hash = {p_mark} WHERE id = {p_mark}", (new_hash, current_user.id))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"status": "success", "message": "Password updated successfully."})
 
 @app.route('/')
 @login_required

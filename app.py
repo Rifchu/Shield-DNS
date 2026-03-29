@@ -115,18 +115,22 @@ DEFAULT_CATEGORIES = {
 }
 
 def ensure_default_rules():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT id FROM users")
-    users = c.fetchall()
+    conn = get_db_connection()
+    c = get_cursor(conn)
+    is_postgres = 'POSTGRES_URL' in os.environ
+    p_mark = "%s" if is_postgres else "?"
     
-    for (uid,) in users:
+    c.execute("SELECT id FROM users")
+    users = fetch_all(c)
+    
+    for row in users:
+        uid = row['id']
         for cat, domains in DEFAULT_CATEGORIES.items():
-            c.execute("SELECT 1 FROM rules WHERE user_id = ? AND category = ?", (uid, cat))
-            if not c.fetchone():
+            c.execute(f"SELECT 1 FROM rules WHERE user_id = {p_mark} AND category = {p_mark}", (uid, cat))
+            if not fetch_one(c):
                 for dom in domains:
                     is_active = 0 if cat == 'Adult' else 1
-                    c.execute("INSERT INTO rules (user_id, category, domain, is_active) VALUES (?, ?, ?, ?)", (uid, cat, dom, is_active))
+                    c.execute(f"INSERT INTO rules (user_id, category, domain, is_active) VALUES ({p_mark}, {p_mark}, {p_mark}, {p_mark})", (uid, cat, dom, is_active))
     conn.commit()
     conn.close()
 
@@ -164,6 +168,11 @@ def init_db():
     c.execute(f'''CREATE TABLE IF NOT EXISTS blocked_daily
                  (id {id_type}, user_id INTEGER, day TEXT, count INTEGER DEFAULT 0,
                   UNIQUE(user_id, day))''')
+    conn.commit()
+    conn.close()
+    
+    # Ensure all existing users have the default categories populated
+    ensure_default_rules()
     
     # DB indexes
     if not is_postgres:
@@ -175,11 +184,11 @@ def init_db():
     if not is_postgres:
         c.execute("UPDATE users SET total_blocked = (SELECT COUNT(*) FROM logs WHERE logs.user_id = users.id AND logs.action = 'BLOCKED') WHERE total_blocked = 0")
     
-    c.execute("SELECT count(*) FROM users")
-    count = c.fetchone()
-    if (count[0] if isinstance(count, tuple) else count['count'] if 'count' in count else list(count.values())[0]) == 0:
+    c.execute("SELECT count(*) as total FROM users")
+    row = fetch_one(c)
+    if not row or row['total'] == 0:
         token = secrets.token_urlsafe(8)
-        pw_hash = generate_password_hash("admin")
+        pw_hash = generate_password_hash("admin123")
         c.execute(f"INSERT INTO users (username, password_hash, doh_token) VALUES ({p_mark}, {p_mark}, {p_mark})", ("admin", pw_hash, token))
         conn.commit()
         

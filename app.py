@@ -315,7 +315,7 @@ def log_request_async(domain, action, user_id, qtype=1):
 
     now = time.time()
     key = f"{user_id}_{domain}_{action}"
-    if key in last_logged and (now - last_logged[key]) < 2.0:
+    if key in last_logged and (now - last_logged[key]) < 0.5:
         return
 
     # TTL-based eviction instead of full clear
@@ -333,26 +333,27 @@ def log_request_async(domain, action, user_id, qtype=1):
             is_postgres = 'POSTGRES_URL' in os.environ
             p_mark = "%s" if is_postgres else "?"
             
-            # 1. Update counters
+            # 1. Update counters (Deduplicated for accuracy)
             if action == "BLOCKED":
-                c.execute(f"UPDATE users SET total_blocked = total_blocked + 1 WHERE id = {p_mark}", (uid,))
-                date_func = "CURRENT_DATE" if is_postgres else "date('now', 'localtime')"
-                if is_postgres:
-                    c.execute(f"INSERT INTO blocked_daily (user_id, day, count) VALUES (%s, {date_func}, 1) ON CONFLICT(user_id, day) DO UPDATE SET count = blocked_daily.count + 1", (uid,))
-                else:
-                    c.execute(f"INSERT INTO blocked_daily (user_id, day, count) VALUES (?, {date_func}, 1) ON CONFLICT(user_id, day) DO UPDATE SET count = count + 1", (uid,))
+                # Only increment if we haven't logged this domain as blocked in the last 2 seconds
+                check_sql = f"SELECT 1 FROM logs WHERE user_id = {p_mark} AND domain = {p_mark} AND action = 'BLOCKED' AND \"timestamp\" > (CURRENT_TIMESTAMP - INTERVAL '2 seconds')" if is_postgres else f"SELECT 1 FROM logs WHERE user_id = {p_mark} AND domain = {p_mark} AND action = 'BLOCKED' AND \"timestamp\" > datetime('now', '-2 seconds')"
+                enc_domain_for_check = encrypt_domain(domain, uid)
+                c.execute(check_sql, (uid, enc_domain_for_check))
+                
+                if not fetch_one(c):
+                    c.execute(f"UPDATE users SET total_blocked = total_blocked + 1 WHERE id = {p_mark}", (uid,))
+                    date_func = "CURRENT_DATE" if is_postgres else "date('now', 'localtime')"
+                    if is_postgres:
+                        c.execute(f"INSERT INTO blocked_daily (user_id, day, count) VALUES (%s, {date_func}, 1) ON CONFLICT(user_id, day) DO UPDATE SET count = blocked_daily.count + 1", (uid,))
+                    else:
+                        c.execute(f"INSERT INTO blocked_daily (user_id, day, count) VALUES (?, {date_func}, 1) ON CONFLICT(user_id, day) DO UPDATE SET count = count + 1", (uid,))
             
-            # 2. Write log entry (if enabled and blocked)
+            # 2. Write log entry (ALWAYS if enabled and blocked)
             c.execute(f"SELECT logging_enabled FROM users WHERE id = {p_mark}", (uid,))
             logging_row = fetch_one(c)
             if action == "BLOCKED" and logging_row and logging_row['logging_enabled']:
                 enc_domain = encrypt_domain(domain, uid)
-                
-                # DB-level deduplication (1-second window)
-                check_sql = f"SELECT 1 FROM logs WHERE user_id = {p_mark} AND domain = {p_mark} AND action = {p_mark} AND \"timestamp\" > (CURRENT_TIMESTAMP - INTERVAL '1 second')" if is_postgres else f"SELECT 1 FROM logs WHERE user_id = {p_mark} AND domain = {p_mark} AND action = {p_mark} AND \"timestamp\" > datetime('now', '-1 second')"
-                c.execute(check_sql, (uid, enc_domain, action))
-                if not fetch_one(c):
-                    c.execute(f'INSERT INTO logs (user_id, domain, action) VALUES ({p_mark}, {p_mark}, {p_mark})', (uid, enc_domain, action))
+                c.execute(f'INSERT INTO logs (user_id, domain, action) VALUES ({p_mark}, {p_mark}, {p_mark})', (uid, enc_domain, action))
             
             conn.commit()
         except Exception as e:

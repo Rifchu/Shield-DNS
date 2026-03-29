@@ -232,13 +232,24 @@ def reload_rules_cache():
     new_cache = {}
     for user_row in users:
         uid = user_row['id']
-        new_cache[uid] = {'categories': {}, 'domains': set(), 'logging_enabled': True, 'doh_token': ''}
+        new_cache[uid] = {'categories': {}, 'domains': set(), 'logging_enabled': True, 'doh_token': '', 'fernet': None}
         
         c.execute(f"SELECT logging_enabled, doh_token FROM users WHERE id = {p_mark}", (uid,))
         user_data = fetch_one(c)
         if user_data:
             new_cache[uid]['logging_enabled'] = bool(user_data['logging_enabled'])
             new_cache[uid]['doh_token'] = user_data['doh_token']
+            
+            # Pre-calculate Fernet for consistency and speed
+            salt = user_data['doh_token'].encode() if user_data['doh_token'] else b'default_salt'
+            kdf = PBKDF2HMAC(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=salt,
+                iterations=1000,
+            )
+            key = base64.urlsafe_b64encode(kdf.derive(app.secret_key.encode()))
+            new_cache[uid]['fernet'] = Fernet(key)
         
         # Postgres requires explicit column names in GROUP BY or aggregation
         c.execute(f"SELECT category, MAX(is_active) as max_active FROM rules WHERE user_id = {p_mark} AND category != 'Specific Website' GROUP BY category", (uid,))
@@ -259,15 +270,18 @@ except Exception as e:
 # --- Encryption Helpers ---
 def get_user_fernet(user_id):
     user_info = rules_cache.get(user_id)
-    token = user_info.get('doh_token', 'default_salt') if user_info else 'default_salt'
-    salt = token.encode()
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=1000, # Lower iterations for faster DNS response
-    )
-    key = base64.urlsafe_b64encode(kdf.derive(app.config['SECRET_KEY'].encode()))
+    if not user_info or not user_info.get('fernet'):
+        # Emergency reload if user missing from cache
+        reload_rules_cache()
+        user_info = rules_cache.get(user_id)
+    
+    if user_info and user_info.get('fernet'):
+        return user_info['fernet']
+    
+    # Absolute fallback (should not happen if user exists)
+    salt = b'fallback_salt'
+    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=1000)
+    key = base64.urlsafe_b64encode(kdf.derive(app.secret_key.encode()))
     return Fernet(key)
 
 def encrypt_domain(domain, user_id):

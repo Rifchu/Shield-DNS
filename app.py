@@ -347,7 +347,12 @@ def log_request_async(domain, action, user_id, qtype=1):
             logging_row = fetch_one(c)
             if action == "BLOCKED" and logging_row and logging_row['logging_enabled']:
                 enc_domain = encrypt_domain(domain, uid)
-                c.execute(f'INSERT INTO logs (user_id, domain, action) VALUES ({p_mark}, {p_mark}, {p_mark})', (uid, enc_domain, action))
+                
+                # DB-level deduplication (5-second window)
+                check_sql = f"SELECT 1 FROM logs WHERE user_id = {p_mark} AND domain = {p_mark} AND action = {p_mark} AND \"timestamp\" > (CURRENT_TIMESTAMP - INTERVAL '5 seconds')" if is_postgres else f"SELECT 1 FROM logs WHERE user_id = {p_mark} AND domain = {p_mark} AND action = {p_mark} AND \"timestamp\" > datetime('now', '-5 seconds')"
+                c.execute(check_sql, (uid, enc_domain, action))
+                if not fetch_one(c):
+                    c.execute(f'INSERT INTO logs (user_id, domain, action) VALUES ({p_mark}, {p_mark}, {p_mark})', (uid, enc_domain, action))
             
             conn.commit()
         except Exception as e:
